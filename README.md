@@ -137,6 +137,51 @@ Research 결과가 많다고 의사결정 준비가 끝난 것은 아닙니다.
 
 찬성 근거만 있고 반대 근거가 없거나, material claim이 미해결이면 `decision_ready=false`입니다.
 
+### v0.3 PR C — Reframing + Candidate Forge
+
+PR C는 처음으로 아이디어를 실제로 **재구성하고 진화시키는 창의적 지능 계층**을 추가합니다. 단, 생성 모델이 공식 상태나 최종 사업 판단을 직접 소유하지 못하도록 Hybrid Expert Forge 구조를 사용합니다.
+
+```text
+Evidence Graph
+  ↓
+Assumption Map
+  ↓
+Perspective Transformations
+  ↓
+Cross-Industry Mechanism Transfer
+  ↓
+Candidate Forge
+  ↓
+Deterministic Admission Gates
+  ↓
+Collision Research
+  ↓
+PR D Independent Evaluator
+```
+
+핵심 규칙:
+
+- provider 출력은 항상 **untrusted structured data**입니다.
+- `assumption_id`, `transfer_id`, `candidate_id`, Collision Research request ID는 trusted deterministic code가 생성합니다.
+- 중요한 사실 주장은 기존 Evidence Graph `claim_id`로 추적되어야 합니다.
+- 근거가 부족한 결정적 질문은 사실로 승격하지 않고 Collision Research request로 전환합니다.
+- 후보는 `adjacent_innovation`, `category_shift`, `zero_based_reinvention`, `axion_candidate` 네 family를 사용합니다.
+- 단순 이름·기능 차이만 있는 후보는 diversity audit에서 탈락합니다.
+- 모든 후보는 `constraint → intervention → workflow/incentive change → economic effect → buyer value → value capture` 인과사슬을 명시해야 합니다.
+- 후보 family가 적용 불가능하다면 이유를 명시해야 합니다.
+- PR C는 **우승 후보, 점수, GO/MODIFY/HOLD/KILL 결론을 만들지 않습니다.** 독립 평가와 최종 사업 판단은 PR D 책임입니다.
+
+Candidate Set은 다음 deterministic Gate를 모두 통과해야 `forge_ready=true`가 됩니다.
+
+- schema
+- evidence traceability
+- reframe readiness
+- mechanism integrity
+- causal value chain
+- structural diversity
+- family coverage
+- explicit unknowns / validation questions
+
 ## v0.3 목표 흐름
 
 ```text
@@ -146,9 +191,15 @@ LANDSCAPE RESEARCH
   ↓
 EVIDENCE GRAPH
   ↓
-REFRAME / IDEA EVOLUTION
+ASSUMPTION MAP / REFRAME
+  ↓
+MECHANISM TRANSFER / CANDIDATE FORGE
+  ↓
+DETERMINISTIC ADMISSION
   ↓
 COLLISION RESEARCH
+  ↓
+INDEPENDENT EVALUATION (PR D)
   ↓
 EXECUTIVE INNOVATION REPORT
   ↓
@@ -159,7 +210,7 @@ HUMAN DECISION
   └─ HOLD/KILL → development handoff blocked
 ```
 
-PR B까지는 Reframe/Candidate Forge/독립 AI Evaluator/UI를 아직 구현하지 않습니다. 먼저 이후 지능이 의존할 **검증 가능한 근거 계층**을 고정합니다.
+PR C까지는 **근거 계층 + 아이디어 진화 후보 생성/입장 Gate**를 구현합니다. 최종 후보 평가, 최종 의사결정, 실제 live provider adapter, Executive UX는 후속 단계에서 연결합니다.
 
 ## 빠른 실행
 
@@ -187,7 +238,7 @@ spec.md + design.md + plan.md
 각 문서 미리보기 / 다운로드
 ```
 
-v0.3 Research/Evidence 계층은 후속 PR에서 실제 provider 및 Executive UX와 연결합니다.
+v0.3의 Research/Evolution 계층은 후속 PR에서 실제 provider 및 Executive UX와 연결합니다.
 
 ## 검증
 
@@ -257,6 +308,10 @@ src/idea_vending/evolution_handoff.py     승인된 결과의 v0.2 handoff gate
 src/idea_vending/evidence_graph.py        Evidence Record/Graph + market integrity/audit
 src/idea_vending/research_engine.py       provider-neutral two-pass research orchestration
 src/idea_vending/evidence_attachment.py   Evidence Graph ↔ Evolution State traceability
+src/idea_vending/reframing.py             Assumption Map + perspective transformation contracts
+src/idea_vending/mechanism_transfer.py    cross-industry causal mechanism transfer contract
+src/idea_vending/ideation_contract.py     provider-neutral untrusted ideation boundary
+src/idea_vending/candidate_forge.py       candidate contract + diversity/causal/admission gates
 web/                                      비개발자용 현재 v0.2 단일 페이지 UI
 tests/                                    단위·HTTP·웹·보안·v0.3 계약 테스트
 scripts/verify.py                         Production Gate 단일 진입점
@@ -266,6 +321,6 @@ docs/superpowers/                         설계와 구현 계획
 
 ## 의도적으로 제외한 것
 
-SaaS 운영, 결제, 회원가입, 자동배포, 자동 코드 실행은 포함하지 않습니다. PR B에는 **실시간 검색 provider API, 외부 LLM provider, Candidate Forge, Reframing Engine, 독립 투자심사 Evaluator, 새로운 v0.3 UI, 영속 데이터베이스**도 포함하지 않습니다.
+SaaS 운영, 결제, 회원가입, 자동배포, 자동 코드 실행은 포함하지 않습니다. PR C에는 **실시간 검색 provider API, 실제 외부 LLM adapter, 독립 투자심사 Evaluator(PR D), 새로운 v0.3 Executive UX, 영속 데이터베이스**를 포함하지 않습니다.
 
-이 기능들은 Evidence Graph와 Research Contract가 Production Gate를 통과한 뒤 별도 단계에서 추가합니다.
+이 기능들은 Reframing/Candidate Forge와 deterministic admission Gate가 Production Gate를 통과한 뒤 별도 단계에서 추가합니다.
