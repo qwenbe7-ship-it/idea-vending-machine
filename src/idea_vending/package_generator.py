@@ -164,6 +164,7 @@ def _build_plan(idea: str, analysis: dict[str, Any], project_id: str) -> str:
 """
     )
     criteria = _bullets(analysis["acceptance_criteria"])
+    task_text = "\n".join(task_sections)
     return f"""# Implementation Plan
 
 Project ID: `{project_id}`
@@ -179,7 +180,7 @@ Implement the smallest testable version of: {idea}
 - Keep uncertain AI judgement separate from deterministic acceptance rules.
 - Do not mark work complete without fresh verification evidence.
 
-{"\n".join(task_sections)}
+{task_text}
 ## Final Release Criteria
 
 {criteria}
