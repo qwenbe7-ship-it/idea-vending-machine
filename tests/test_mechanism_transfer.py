@@ -5,7 +5,10 @@ from src.idea_vending.evidence_graph import (
     create_evidence_graph,
     create_evidence_record,
 )
-from src.idea_vending.mechanism_transfer import create_mechanism_transfer
+from src.idea_vending.mechanism_transfer import (
+    create_mechanism_transfer,
+    validate_mechanism_transfer,
+)
 
 
 def graph_with_claim():
@@ -82,6 +85,13 @@ class MechanismTransferTests(unittest.TestCase):
                 transfer_id="transfer_providerchosen",
                 **VALID_FIELDS,
             )
+
+    def test_validator_rejects_content_valid_transfer_with_tampered_id(self):
+        graph = graph_with_claim()
+        transfer = create_mechanism_transfer(graph=graph, **VALID_FIELDS)
+        transfer["transfer_id"] = "transfer_aaaaaaaaaaaa"
+        with self.assertRaises(ValueError):
+            validate_mechanism_transfer(transfer, graph)
 
     def test_missing_causal_explanation_is_rejected(self):
         for field in (
