@@ -3,7 +3,11 @@ import unittest
 from src.idea_vending.candidate_forge import (
     CANDIDATE_FAMILIES,
     VALUE_CHAIN_KEYS,
+    audit_candidate_diversity,
+    audit_family_coverage,
     create_candidate,
+    create_collision_research_request,
+    validate_causal_value_chain,
 )
 from src.idea_vending.evidence_graph import (
     add_evidence_record,
@@ -70,6 +74,35 @@ VALID_FIELDS = dict(
     unknowns=["Actual willingness to pay for prevention remains unverified."],
     validation_questions=["Will target buyers pay to prevent risk before commitment?"],
 )
+
+
+def candidate_for_family(graph, family, index):
+    fields = dict(VALID_FIELDS)
+    fields.update(
+        family=family,
+        name=f"Candidate {index}",
+        one_sentence_concept=f"Distinct candidate concept {index}",
+        primary_buyer=f"Buyer {index}",
+        problem_reframe=f"Distinct root problem framing {index}",
+        workflow_after=f"Distinct target workflow {index}",
+        value_capture_model=f"Distinct value capture model {index}",
+        transformations_used=[
+            ["AFTER_TO_BEFORE", "DOCUMENT_TO_DATA"],
+            ["TOOL_TO_WORKFLOW", "DATA_TO_DECISION"],
+            ["INPUT_TO_OBSERVE", "DECISION_TO_ACTION"],
+            ["SERVICE_TO_ASSET", "ONE_TIME_TO_COMPOUNDING"],
+        ][index - 1],
+        mechanism_transfer_ids=[f"transfer_{index:012d}"],
+        value_creation_chain={
+            "current_constraint": f"Constraint {index}",
+            "intervention": f"Intervention {index}",
+            "workflow_or_incentive_change": f"Workflow change {index}",
+            "operational_or_economic_effect": f"Economic effect {index}",
+            "buyer_value": f"Buyer value {index}",
+            "value_capture": f"Value capture {index}",
+        },
+    )
+    return create_candidate(graph=graph, **fields)
 
 
 class CandidateContractTests(unittest.TestCase):
@@ -154,6 +187,137 @@ class CandidateContractTests(unittest.TestCase):
         fields["critical_dependencies"] = ["Reliable data", "Reliable data"]
         with self.assertRaises(ValueError):
             create_candidate(graph=graph_with_claim(), **fields)
+
+
+class DiversityAndCausalGateTests(unittest.TestCase):
+    def test_structurally_distinct_four_family_set_is_diversity_ready(self):
+        graph = graph_with_claim()
+        candidates = [
+            candidate_for_family(graph, "adjacent_innovation", 1),
+            candidate_for_family(graph, "category_shift", 2),
+            candidate_for_family(graph, "zero_based_reinvention", 3),
+            candidate_for_family(graph, "axion_candidate", 4),
+        ]
+        audit = audit_candidate_diversity(candidates)
+        self.assertTrue(audit["diversity_ready"])
+        self.assertEqual(audit["collapsed_candidate_ids"], [])
+        self.assertEqual(len(audit["pairwise_differences"]), 6)
+
+    def test_cosmetic_variants_collapse_even_when_names_differ(self):
+        graph = graph_with_claim()
+        candidates = []
+        for index, family in enumerate(
+            [
+                "adjacent_innovation",
+                "category_shift",
+                "zero_based_reinvention",
+                "axion_candidate",
+            ],
+            start=1,
+        ):
+            fields = dict(VALID_FIELDS)
+            fields["family"] = family
+            fields["name"] = f"Marketing Name {index}"
+            fields["one_sentence_concept"] = f"Marketing copy {index}"
+            candidates.append(create_candidate(graph=graph, **fields))
+        audit = audit_candidate_diversity(candidates)
+        self.assertFalse(audit["diversity_ready"])
+        self.assertEqual(len(audit["collapsed_candidate_ids"]), 4)
+
+    def test_causal_gate_rejects_missing_link_in_mutated_candidate(self):
+        candidate = create_candidate(graph=graph_with_claim(), **VALID_FIELDS)
+        candidate["value_creation_chain"]["buyer_value"] = ""
+        with self.assertRaises(ValueError):
+            validate_causal_value_chain(candidate)
+
+
+class FamilyCoverageTests(unittest.TestCase):
+    def test_all_four_generated_families_are_ready(self):
+        graph = graph_with_claim()
+        candidates = [
+            candidate_for_family(graph, "adjacent_innovation", 1),
+            candidate_for_family(graph, "category_shift", 2),
+            candidate_for_family(graph, "zero_based_reinvention", 3),
+            candidate_for_family(graph, "axion_candidate", 4),
+        ]
+        audit = audit_family_coverage(candidates)
+        self.assertTrue(audit["family_ready"])
+        self.assertEqual(audit["missing_families"], [])
+
+    def test_non_applicable_family_requires_reason(self):
+        graph = graph_with_claim()
+        candidates = [candidate_for_family(graph, "adjacent_innovation", 1)]
+        audit = audit_family_coverage(
+            candidates,
+            non_applicable_families={
+                "category_shift": "No category shift survives the current evidence.",
+                "zero_based_reinvention": "The workflow is already close to zero-based design.",
+                "axion_candidate": "Automation economics are not applicable to this case.",
+            },
+        )
+        self.assertTrue(audit["family_ready"])
+        with self.assertRaises(ValueError):
+            audit_family_coverage(
+                candidates,
+                non_applicable_families={
+                    "category_shift": "",
+                    "zero_based_reinvention": "Reason",
+                    "axion_candidate": "Reason",
+                },
+            )
+
+    def test_family_cannot_be_generated_and_non_applicable(self):
+        graph = graph_with_claim()
+        candidate = candidate_for_family(graph, "category_shift", 2)
+        with self.assertRaises(ValueError):
+            audit_family_coverage(
+                [candidate],
+                non_applicable_families={"category_shift": "Contradictory state"},
+            )
+
+
+class CollisionResearchRequestTests(unittest.TestCase):
+    def test_request_is_deterministic_and_has_exact_contract(self):
+        kwargs = dict(
+            candidate_id="candidate_123456789abc",
+            question="Does a materially similar prior-art product already exist?",
+            reason="A similar product could remove differentiation.",
+            materiality="material",
+            suggested_category="prior_art",
+        )
+        first = create_collision_research_request(**kwargs)
+        second = create_collision_research_request(**kwargs)
+        self.assertEqual(first, second)
+        self.assertRegex(first["research_request_id"], r"^collision_[0-9a-f]{12}$")
+        self.assertEqual(
+            set(first),
+            {
+                "research_request_id",
+                "candidate_id",
+                "question",
+                "reason",
+                "materiality",
+                "suggested_category",
+            },
+        )
+
+    def test_invalid_materiality_or_category_is_rejected(self):
+        with self.assertRaises(ValueError):
+            create_collision_research_request(
+                candidate_id="candidate_123456789abc",
+                question="Question?",
+                reason="Reason",
+                materiality="critical",
+                suggested_category="prior_art",
+            )
+        with self.assertRaises(ValueError):
+            create_collision_research_request(
+                candidate_id="candidate_123456789abc",
+                question="Question?",
+                reason="Reason",
+                materiality="material",
+                suggested_category="hype_check",
+            )
 
 
 if __name__ == "__main__":
