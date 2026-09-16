@@ -182,6 +182,42 @@ Candidate Set은 다음 deterministic Gate를 모두 통과해야 `forge_ready=t
 - family coverage
 - explicit unknowns / validation questions
 
+### v0.3 PR D — Independent Evaluator + Decision Engine
+
+PR D는 Candidate Forge와 분리된 **독립 투자심사 계층**입니다. 생성 모델의 자기평가나 설득 문장을 공식 판단으로 사용하지 않고, 독립 critique를 Evidence Graph와 deterministic hard gate에 통과시킨 뒤에만 사업 결론을 만듭니다.
+
+```text
+Raw-Idea Baseline + Candidate Set
+        ↓
+Independent Evaluator Request
+        ↓
+Untrusted Critique Output
+        ↓
+Evidence / Counter-evidence Validation
+        ↓
+Feasibility / Collision / Blocker Gates
+        ↓
+Evolution Delta / Strict Dominance
+        ↓
+Deterministic Decision Engine
+        ↓
+GO / MODIFY / HOLD / KILL
+```
+
+핵심 규칙:
+
+- 원안을 별도 content-addressed baseline으로 보존하여 `GO`와 `MODIFY`를 구분합니다.
+- evaluator는 정확히 10개 차원을 `strong` / `mixed` / `weak` / `unknown`으로 평가하지만 공식 총점·랭킹은 만들지 않습니다.
+- evaluator/provider 출력은 항상 untrusted이며 `decision`, `confidence`, `selected_concept_id`, trusted ID를 직접 설정할 수 없습니다.
+- `GO`는 **원안 유지**, `MODIFY`는 **검증된 진화 후보 채택**입니다.
+- 결정적 근거가 부족하거나 material collision/unknown이 남아 있으면 `HOLD`입니다.
+- 누락된 근거만으로는 절대 `KILL`하지 않습니다. `KILL`은 원안과 모든 후보가 evidence-backed decisive failure로 탈락할 때만 허용됩니다.
+- `T1`은 positive decision을 만들 수 없고, 미해결 `T2`는 원칙적으로 `HOLD`입니다.
+- `GO`/`MODIFY`에 `low` confidence는 허용하지 않습니다.
+- 둘 이상의 진화 후보가 동시에 적합한 경우 한 후보가 다른 후보들을 strict dominance하지 못하면 가짜 순위를 만들지 않고 `HOLD`합니다.
+- PR D는 사람을 대신해 `human_decision=proceed`를 설정하지 않습니다.
+- 기존 `HOLD/KILL → v0.2 handoff 차단` 계약은 그대로 유지됩니다.
+
 ## v0.3 목표 흐름
 
 ```text
@@ -199,9 +235,9 @@ DETERMINISTIC ADMISSION
   ↓
 COLLISION RESEARCH
   ↓
-INDEPENDENT EVALUATION (PR D)
+INDEPENDENT EVALUATION + DECISION ENGINE (PR D)
   ↓
-EXECUTIVE INNOVATION REPORT
+EXECUTIVE INNOVATION REPORT / UX (PR E)
   ↓
 GO / MODIFY / HOLD / KILL
   ↓
@@ -210,7 +246,7 @@ HUMAN DECISION
   └─ HOLD/KILL → development handoff blocked
 ```
 
-PR C까지는 **근거 계층 + 아이디어 진화 후보 생성/입장 Gate**를 구현합니다. 최종 후보 평가, 최종 의사결정, 실제 live provider adapter, Executive UX는 후속 단계에서 연결합니다.
+PR D까지는 **근거 계층 + 아이디어 진화 + 독립 투자심사 + 공식 decision contract**를 구현합니다. 실제 live provider adapter와 최종 Executive UX/E2E 연결은 PR E 범위입니다.
 
 ## 빠른 실행
 
@@ -238,7 +274,7 @@ spec.md + design.md + plan.md
 각 문서 미리보기 / 다운로드
 ```
 
-v0.3의 Research/Evolution 계층은 후속 PR에서 실제 provider 및 Executive UX와 연결합니다.
+v0.3의 Research/Evolution/Evaluation 계층은 PR E에서 실제 provider 및 Executive UX와 연결합니다.
 
 ## 검증
 
@@ -312,6 +348,10 @@ src/idea_vending/reframing.py             Assumption Map + perspective transform
 src/idea_vending/mechanism_transfer.py    cross-industry causal mechanism transfer contract
 src/idea_vending/ideation_contract.py     provider-neutral untrusted ideation boundary
 src/idea_vending/candidate_forge.py       candidate contract + diversity/causal/admission gates
+src/idea_vending/baseline_contract.py     content-addressed raw-idea comparison baseline
+src/idea_vending/evaluator_contract.py    independent evaluator critique/evidence schema
+src/idea_vending/independent_evaluator.py provider-neutral untrusted evaluator boundary
+src/idea_vending/decision_engine.py       deterministic hard gates + official decision engine
 web/                                      비개발자용 현재 v0.2 단일 페이지 UI
 tests/                                    단위·HTTP·웹·보안·v0.3 계약 테스트
 scripts/verify.py                         Production Gate 단일 진입점
@@ -321,6 +361,6 @@ docs/superpowers/                         설계와 구현 계획
 
 ## 의도적으로 제외한 것
 
-SaaS 운영, 결제, 회원가입, 자동배포, 자동 코드 실행은 포함하지 않습니다. PR C에는 **실시간 검색 provider API, 실제 외부 LLM adapter, 독립 투자심사 Evaluator(PR D), 새로운 v0.3 Executive UX, 영속 데이터베이스**를 포함하지 않습니다.
+SaaS 운영, 결제, 회원가입, 자동배포, 자동 코드 실행은 포함하지 않습니다. PR D에는 **실시간 검색 provider API, 실제 외부 LLM adapter, 새로운 v0.3 Executive UX, 영속 데이터베이스, 인증/결제 계층**을 포함하지 않습니다.
 
-이 기능들은 Reframing/Candidate Forge와 deterministic admission Gate가 Production Gate를 통과한 뒤 별도 단계에서 추가합니다.
+PR E에서 최종 Executive UX와 전체 v0.3 pipeline/E2E Production Gate를 연결합니다.
