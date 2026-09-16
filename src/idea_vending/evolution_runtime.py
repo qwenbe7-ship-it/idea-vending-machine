@@ -12,6 +12,8 @@ from copy import deepcopy
 from typing import Any
 
 from src.idea_vending import evolution_runtime_core as _core
+from src.idea_vending import evolution_schema_core as _schema_core
+from src.idea_vending.evolution_schema import validate_complete_report as _validate_e2a_complete_report
 from src.idea_vending.independent_evaluator import ingest_evaluator_output
 from src.idea_vending.reality_evaluation import derive_reality_assessment
 
@@ -20,6 +22,19 @@ from src.idea_vending.reality_evaluation import derive_reality_assessment
 for _name in dir(_core):
     if not _name.startswith("__") and _name not in globals():
         globals()[_name] = getattr(_core, _name)
+
+
+def _validate_core_report_phase(state: dict[str, Any]) -> None:
+    """Allow the stable E1 assembler to validate before E2A assessments are attached."""
+    legacy = deepcopy(state)
+    legacy.pop("candidate_reality_assessments", None)
+    _schema_core.validate_complete_report(legacy)
+
+
+# E1 assembles the report before E2A can derive Reality Assessments. Keep that
+# internal phase on the legacy validator; the public E2A validator runs after
+# the assessments are attached below.
+_core.validate_complete_report = _validate_core_report_phase
 
 
 class _CapturingEvaluationProvider:
@@ -138,9 +153,12 @@ def run_evolution(
     if capturing_evaluator.request is None or capturing_evaluator.raw_output is None:
         raise ValueError("completed runtime is missing captured independent evaluation")
 
-    result["candidate_reality_assessments"] = _derive_candidate_reality_assessments(
+    assessments = _derive_candidate_reality_assessments(
         result=result,
         captured_request=capturing_evaluator.request,
         raw_evaluation=capturing_evaluator.raw_output,
     )
+    result["candidate_reality_assessments"] = assessments
+    result["state"]["candidate_reality_assessments"] = deepcopy(assessments)
+    _validate_e2a_complete_report(result["state"])
     return result
