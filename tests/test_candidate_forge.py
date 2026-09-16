@@ -4,6 +4,7 @@ from src.idea_vending.candidate_forge import (
     CANDIDATE_FAMILIES,
     VALUE_CHAIN_KEYS,
     audit_candidate_diversity,
+    audit_candidate_set,
     audit_family_coverage,
     create_candidate,
     create_collision_research_request,
@@ -14,6 +15,8 @@ from src.idea_vending.evidence_graph import (
     create_evidence_graph,
     create_evidence_record,
 )
+from src.idea_vending.mechanism_transfer import create_mechanism_transfer
+from src.idea_vending.reframing import create_transformation_test
 
 
 def graph_with_claim():
@@ -76,7 +79,7 @@ VALID_FIELDS = dict(
 )
 
 
-def candidate_for_family(graph, family, index):
+def candidate_fields_for_family(family, index, *, transfer_id=None):
     fields = dict(VALID_FIELDS)
     fields.update(
         family=family,
@@ -92,7 +95,7 @@ def candidate_for_family(graph, family, index):
             ["INPUT_TO_OBSERVE", "DECISION_TO_ACTION"],
             ["SERVICE_TO_ASSET", "ONE_TIME_TO_COMPOUNDING"],
         ][index - 1],
-        mechanism_transfer_ids=[f"transfer_{index:012d}"],
+        mechanism_transfer_ids=[transfer_id or f"transfer_{index:012d}"],
         value_creation_chain={
             "current_constraint": f"Constraint {index}",
             "intervention": f"Intervention {index}",
@@ -102,7 +105,64 @@ def candidate_for_family(graph, family, index):
             "value_capture": f"Value capture {index}",
         },
     )
-    return create_candidate(graph=graph, **fields)
+    return fields
+
+
+def candidate_for_family(graph, family, index):
+    return create_candidate(graph=graph, **candidate_fields_for_family(family, index))
+
+
+def admission_fixture():
+    graph = graph_with_claim()
+    families = [
+        "adjacent_innovation",
+        "category_shift",
+        "zero_based_reinvention",
+        "axion_candidate",
+    ]
+    transfers = []
+    candidates = []
+    for index, family in enumerate(families, start=1):
+        transfer = create_mechanism_transfer(
+            graph=graph,
+            source_domain=f"Source domain {index}",
+            mechanism_name=f"Mechanism {index}",
+            mechanism_description=f"Mechanism description {index}",
+            source_constraint=f"Source constraint {index}",
+            why_it_works_there=f"Why it works {index}",
+            target_equivalent_constraint=f"Target constraint {index}",
+            transfer_logic=f"Transfer logic {index}",
+            value_chain_change=f"Value-chain change {index}",
+            expected_customer_value=f"Expected customer value {index}",
+            new_risks=[f"Transfer risk {index}"],
+            supporting_claim_ids=["claim_candidate01"],
+        )
+        transfers.append(transfer)
+        candidates.append(
+            create_candidate(
+                graph=graph,
+                **candidate_fields_for_family(
+                    family, index, transfer_id=transfer["transfer_id"]
+                ),
+            )
+        )
+    transformations = [
+        create_transformation_test(
+            transformation="AFTER_TO_BEFORE",
+            applicable=True,
+            reason="Risk signals exist before commitment.",
+            resulting_reframe="Prevent risk before commitment.",
+            materiality="material",
+        ),
+        create_transformation_test(
+            transformation="DOCUMENT_TO_DATA",
+            applicable=True,
+            reason="Documents can be normalized into reusable fields.",
+            resulting_reframe="Use structured data rather than documents as the work unit.",
+            materiality="material",
+        ),
+    ]
+    return graph, candidates, transfers, transformations
 
 
 class CandidateContractTests(unittest.TestCase):
@@ -318,6 +378,84 @@ class CollisionResearchRequestTests(unittest.TestCase):
                 materiality="material",
                 suggested_category="hype_check",
             )
+
+
+class CandidateSetAdmissionTests(unittest.TestCase):
+    def test_valid_set_reports_each_gate_and_never_selects_a_winner(self):
+        graph, candidates, transfers, transformations = admission_fixture()
+        audit = audit_candidate_set(
+            graph,
+            candidates,
+            transformations,
+            transfers,
+        )
+        self.assertEqual(
+            set(audit),
+            {
+                "schema_ready",
+                "evidence_ready",
+                "reframe_ready",
+                "mechanism_ready",
+                "causal_ready",
+                "diversity_ready",
+                "family_ready",
+                "unknowns_ready",
+                "forge_ready",
+            },
+        )
+        self.assertTrue(all(audit.values()))
+        for forbidden in ("best_candidate", "winner", "score", "verdict", "decision"):
+            self.assertNotIn(forbidden, audit)
+
+    def test_reframe_failure_blocks_forge_without_hiding_other_gate_results(self):
+        graph, candidates, transfers, _ = admission_fixture()
+        one_transformation = [
+            create_transformation_test(
+                transformation="AFTER_TO_BEFORE",
+                applicable=True,
+                reason="Only one material reframe tested.",
+                resulting_reframe="Prevent rather than repair.",
+                materiality="material",
+            )
+        ]
+        audit = audit_candidate_set(
+            graph,
+            candidates,
+            one_transformation,
+            transfers,
+        )
+        self.assertFalse(audit["reframe_ready"])
+        self.assertFalse(audit["forge_ready"])
+        self.assertTrue(audit["schema_ready"])
+        self.assertTrue(audit["evidence_ready"])
+
+    def test_unknown_mechanism_reference_blocks_mechanism_gate(self):
+        graph, candidates, transfers, transformations = admission_fixture()
+        audit = audit_candidate_set(
+            graph,
+            candidates,
+            transformations,
+            transfers[:-1],
+        )
+        self.assertFalse(audit["mechanism_ready"])
+        self.assertFalse(audit["forge_ready"])
+
+    def test_every_candidate_must_keep_unknowns_or_validation_questions_explicit(self):
+        graph, candidates, transfers, transformations = admission_fixture()
+        fields = candidate_fields_for_family(
+            "axion_candidate", 4, transfer_id=transfers[3]["transfer_id"]
+        )
+        fields["unknowns"] = []
+        fields["validation_questions"] = []
+        candidates[-1] = create_candidate(graph=graph, **fields)
+        audit = audit_candidate_set(
+            graph,
+            candidates,
+            transformations,
+            transfers,
+        )
+        self.assertFalse(audit["unknowns_ready"])
+        self.assertFalse(audit["forge_ready"])
 
 
 if __name__ == "__main__":
