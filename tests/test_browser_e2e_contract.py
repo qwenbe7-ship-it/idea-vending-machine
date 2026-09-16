@@ -33,10 +33,27 @@ class BrowserE2EContractTests(unittest.TestCase):
             self.assertIn(marker, source)
         self.assertIn("BROWSER GREEN WITH EVIDENCE", source)
 
-    def test_browser_gate_uses_deterministic_bridge_fixtures_not_live_credentials(self):
+    def test_browser_verifier_covers_primary_autonomous_flow(self):
+        source = (ROOT / "scripts" / "verify_browser.py").read_text(encoding="utf-8")
+        for marker in (
+            "AUTO_ONE_CLICK_COMPLETE",
+            "AUTO_SUMMARY_TRUSTED",
+            "AUTO_GO_APPROVAL",
+            "AUTO_HOLD_BLOCKED",
+            "AUTO_PROVIDER_NOT_CONFIGURED_FALLBACK",
+        ):
+            self.assertIn(marker, source)
+        self.assertIn("create_autonomous_server", source)
+        self.assertIn("completed_result", source)
+        self.assertIn("자동 분석 시작", source)
+        self.assertIn("#automation-summary", source)
+        self.assertIn("#candidate-grid .candidate-card", source)
+
+    def test_browser_gate_uses_deterministic_fixtures_not_live_credentials(self):
         source = (ROOT / "scripts" / "verify_browser.py").read_text(encoding="utf-8")
         self.assertIn("valid_forge_result", source)
         self.assertIn("FakeEvaluationProvider", source)
+        self.assertIn("completed_result", source)
         self.assertNotIn("OpenAIResponsesProvider", source)
         self.assertNotIn("OPENAI_API_KEY", source)
         self.assertNotIn("sk-", source)
