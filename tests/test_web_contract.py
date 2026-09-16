@@ -6,10 +6,27 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WebContractTests(unittest.TestCase):
-    def test_executive_decision_first_sections_exist(self):
+    def test_plus_bridge_is_primary_executive_flow(self):
         html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
         for expected in (
             'id="evolve-submit"',
+            'id="bridge-workflow"',
+            'id="bridge-session"',
+            'id="forge-package"',
+            'id="copy-forge-prompt"',
+            'id="copy-forge-json"',
+            'id="download-forge-json"',
+            'id="forge-result-input"',
+            'id="forge-result-file"',
+            'id="import-forge-result"',
+            'id="judge-package"',
+            'id="copy-judge-prompt"',
+            'id="copy-judge-json"',
+            'id="download-judge-json"',
+            'id="judge-result-input"',
+            'id="judge-result-file"',
+            'id="import-judge-result"',
+            'id="api-mode-indicator"',
             'id="runtime-progress"',
             'id="executive-decision"',
             'id="candidate-grid"',
@@ -20,32 +37,59 @@ class WebContractTests(unittest.TestCase):
             'id="spec-preview"',
             'id="design-preview"',
             'id="plan-preview"',
-            'data-download="spec.md"',
-            'data-download="design.md"',
-            'data-download="plan.md"',
         ):
             self.assertIn(expected, html)
-        self.assertIn("아이디어 진화시키기", html)
+        self.assertIn("ChatGPT Plus로 분석", html)
+        self.assertIn("별도의 새 ChatGPT 대화", html)
 
-    def test_frontend_uses_primary_evolve_and_server_owned_approval(self):
+    def test_frontend_uses_bridge_endpoints_and_server_owned_approval(self):
         source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
-        self.assertIn("/api/evolve", source)
-        self.assertIn("/api/evolve/approve", source)
+        for path in (
+            "/readyz",
+            "/api/bridge/forge-request",
+            "/api/bridge/forge-import",
+            "/api/bridge/judge-request",
+            "/api/bridge/judge-import",
+            "/api/evolve/approve",
+        ):
+            self.assertIn(path, source)
         self.assertIn("{runtime_id: currentRuntimeId}", source)
         self.assertNotIn("{runtime_id: currentRuntimeId, decision", source)
         self.assertNotIn("{runtime_id: currentRuntimeId, confidence", source)
         self.assertNotIn("{runtime_id: currentRuntimeId, selected", source)
         self.assertNotIn("{runtime_id: currentRuntimeId, human_decision", source)
 
-    def test_frontend_uses_safe_dom_and_blob_downloads(self):
+    def test_frontend_uses_safe_dom_json_files_and_clipboard(self):
         source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
-        for forbidden in ("innerHTML", "outerHTML", "document.write("):
+        for forbidden in (
+            "innerHTML",
+            "outerHTML",
+            "document.write(",
+            "eval(",
+            "exec(",
+            "OPENAI_API_KEY",
+            "sk-",
+            "api_key",
+            "provider_url",
+            "system_prompt",
+        ):
             self.assertNotIn(forbidden, source)
         self.assertIn("textContent", source)
         self.assertIn("replaceChildren", source)
+        self.assertIn("navigator.clipboard", source)
+        self.assertIn("file.text()", source)
+        self.assertIn("application/json", source)
         self.assertIn("new Blob", source)
         self.assertIn("URL.createObjectURL", source)
         self.assertIn("noopener noreferrer", source)
+
+    def test_bridge_browser_wraps_only_server_session_and_version_around_results(self):
+        source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("bridge_session_id: currentBridgeSessionId", source)
+        self.assertIn("bridge_version: currentBridgeVersion", source)
+        self.assertIn("result", source)
+        for forbidden in ("decision:", "confidence:", "human_decision:", "selected_concept_id:"):
+            self.assertNotIn(forbidden, source)
 
     def test_runtime_and_reality_evaluation_are_rendered_from_server_payload(self):
         source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
