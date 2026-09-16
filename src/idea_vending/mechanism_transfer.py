@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any
 
 TRANSFER_KEYS = {
@@ -20,6 +21,7 @@ TRANSFER_KEYS = {
     "new_risks",
     "supporting_claim_ids",
 }
+_TRANSFER_ID_RE = re.compile(r"^transfer_[0-9a-f]{12}$")
 
 
 def _text(field: str, value: Any) -> str:
@@ -102,10 +104,15 @@ def create_mechanism_transfer(
 
 
 def validate_mechanism_transfer(record: dict[str, Any], graph: dict[str, Any]) -> None:
-    """Reject cosmetic analogies that lack the complete causal-transfer contract."""
+    """Validate causal fields, evidence refs, and the trusted content-addressed ID."""
     if not isinstance(record, dict) or set(record) != TRANSFER_KEYS:
         raise ValueError("mechanism transfer keys do not match the PR C contract")
-    _text("transfer_id", record["transfer_id"])
+
+    transfer_id = _text("transfer_id", record["transfer_id"])
+    if not _TRANSFER_ID_RE.fullmatch(transfer_id):
+        raise ValueError("transfer_id must be a trusted transfer_<12hex> identifier")
+
+    payload = {}
     for field in (
         "source_domain",
         "mechanism_name",
@@ -117,13 +124,18 @@ def validate_mechanism_transfer(record: dict[str, Any], graph: dict[str, Any]) -
         "value_chain_change",
         "expected_customer_value",
     ):
-        _text(field, record[field])
+        payload[field] = _text(field, record[field])
+
     risks = _unique_text_list("new_risks", record["new_risks"], allow_empty=False)
     claims = _unique_text_list(
         "supporting_claim_ids", record["supporting_claim_ids"], allow_empty=True
     )
-    if not risks:
-        raise ValueError("new_risks must not be empty")
+    payload["new_risks"] = risks
+    payload["supporting_claim_ids"] = claims
+
     unknown = sorted(set(claims) - _known_claim_ids(graph))
     if unknown:
         raise ValueError(f"unknown Evidence Graph claim IDs: {', '.join(unknown)}")
+
+    if _stable_id(payload) != transfer_id:
+        raise ValueError("transfer_id does not match mechanism transfer content")
