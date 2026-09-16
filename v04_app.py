@@ -21,21 +21,23 @@ from src.idea_vending.provider_transport import ResponsesTransport
 
 
 def _build_autonomous_runner(environ: Mapping[str, str]) -> Callable[[str], dict[str, Any]]:
-    """Build the server-owned autonomous provider stack.
-
-    Task 1 preserves the existing single-adapter behavior. Provider-role
-    separation is introduced and tested independently in Task 2.
-    """
+    """Build three isolated server-owned provider roles from trusted config."""
     config = OpenAIProviderConfig.from_environ(environ)
-    transport = ResponsesTransport(config.api_key, config.timeout_seconds)
-    provider = OpenAIResponsesProvider(transport, config)
+
+    def provider() -> OpenAIResponsesProvider:
+        transport = ResponsesTransport(config.api_key, config.timeout_seconds)
+        return OpenAIResponsesProvider(transport, config)
+
+    research_provider = provider()
+    ideation_provider = provider()
+    evaluation_provider = provider()
 
     def run(idea: str) -> dict[str, Any]:
         return run_evolution(
             idea,
-            research_provider=provider,
-            ideation_provider=provider,
-            evaluation_provider=provider,
+            research_provider=research_provider,
+            ideation_provider=ideation_provider,
+            evaluation_provider=evaluation_provider,
             now_provider=legacy_app._utcnow_iso,
         )
 
