@@ -54,9 +54,13 @@ class EvolveAPITests(unittest.TestCase):
         )
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
-        self.addCleanup(server.shutdown)
-        self.addCleanup(server.server_close)
-        self.addCleanup(thread.join, 2)
+
+        def cleanup():
+            server.shutdown()
+            server.server_close()
+            thread.join(2)
+
+        self.addCleanup(cleanup)
         return server
 
     def post(self, server, payload, content_type="application/json"):
