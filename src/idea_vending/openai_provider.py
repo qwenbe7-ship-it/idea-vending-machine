@@ -78,6 +78,20 @@ _RESEARCH_DRAFT_KEYS = {
     "market_size",
 }
 
+_MARKET_SIZE_KEYS = {
+    "base_year",
+    "base_value",
+    "forecast_year",
+    "forecast_value",
+    "cagr",
+    "currency",
+    "unit",
+    "geography",
+    "market_definition",
+    "estimate_kind",
+    "source_definition_note",
+}
+
 
 def _stable_digest(prefix: str, payload: Any) -> str:
     canonical = json.dumps(
@@ -107,6 +121,33 @@ def _object_schema(properties: dict[str, Any], required: list[str]) -> dict[str,
     }
 
 
+def _nullable(value_schema: dict[str, Any]) -> dict[str, Any]:
+    return {"anyOf": [value_schema, {"type": "null"}]}
+
+
+def _market_size_schema() -> dict[str, Any]:
+    """Mirror the deterministic Evidence Graph market-size contract exactly."""
+    return _object_schema(
+        {
+            "base_year": {"type": "integer"},
+            "base_value": {"type": "number"},
+            "forecast_year": _nullable({"type": "integer"}),
+            "forecast_value": _nullable({"type": "number"}),
+            "cagr": _nullable({"type": "number"}),
+            "currency": {"type": "string"},
+            "unit": {"type": "string"},
+            "geography": {"type": "string"},
+            "market_definition": {"type": "string"},
+            "estimate_kind": {
+                "type": "string",
+                "enum": ["reported", "derived", "scenario"],
+            },
+            "source_definition_note": {"type": "string"},
+        },
+        sorted(_MARKET_SIZE_KEYS),
+    )
+
+
 def _research_schema() -> dict[str, Any]:
     text = {"type": "string"}
     return _object_schema(
@@ -132,7 +173,7 @@ def _research_schema() -> dict[str, Any]:
                         "market_size": {
                             "anyOf": [
                                 {"type": "null"},
-                                {"type": "object", "additionalProperties": True},
+                                _market_size_schema(),
                             ]
                         },
                     },
@@ -286,6 +327,25 @@ class OpenAIResponsesProvider:
         self._transport = transport
         self.config = config
         self._retrieved_date_provider = retrieved_date_provider or (lambda: date.today().isoformat())
+        self.last_run_metadata: dict[str, Any] | None = None
+
+    def _remember_run(
+        self,
+        *,
+        response_id: str,
+        model: str,
+        usage: dict[str, Any],
+        operation: str,
+        source_count: int | None,
+    ) -> None:
+        self.last_run_metadata = {
+            "provider": "openai",
+            "provider_response_id": response_id,
+            "model": model,
+            "operation": operation,
+            "usage": dict(usage),
+            "source_count": source_count,
+        }
 
     def research(self, request: dict[str, Any]) -> dict[str, Any]:
         validate_research_request(request)
@@ -302,9 +362,16 @@ class OpenAIResponsesProvider:
             "text": {"format": _strict_format("ivm_research_records", _research_schema())},
         }
         response = self._transport.post_json(payload)
-        structured = _extract_output_object(response)
         response_id, response_model, usage = _response_metadata(response)
         consulted_urls = _extract_source_urls(response)
+        self._remember_run(
+            response_id=response_id,
+            model=response_model,
+            usage=usage,
+            operation=request["pass_type"],
+            source_count=len(consulted_urls),
+        )
+        structured = _extract_output_object(response)
         drafts = structured.get("records")
         if not isinstance(drafts, list):
             raise ProviderSchemaMismatch("research structured output must contain records list")
@@ -428,7 +495,16 @@ class OpenAIResponsesProvider:
             "input": json.dumps(request, ensure_ascii=False, sort_keys=True),
             "text": {"format": _strict_format(f"ivm_{request['operation']}", schema)},
         }
-        return _extract_output_object(self._transport.post_json(payload))
+        response = self._transport.post_json(payload)
+        response_id, response_model, usage = _response_metadata(response)
+        self._remember_run(
+            response_id=response_id,
+            model=response_model,
+            usage=usage,
+            operation=request["operation"],
+            source_count=None,
+        )
+        return _extract_output_object(response)
 
     def evaluate(self, request: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(request, dict):
@@ -443,4 +519,13 @@ class OpenAIResponsesProvider:
             "input": json.dumps(request, ensure_ascii=False, sort_keys=True),
             "text": {"format": _strict_format("ivm_independent_critique", _evaluator_schema())},
         }
-        return _extract_output_object(self._transport.post_json(payload))
+        response = self._transport.post_json(payload)
+        response_id, response_model, usage = _response_metadata(response)
+        self._remember_run(
+            response_id=response_id,
+            model=response_model,
+            usage=usage,
+            operation="independent_evaluation",
+            source_count=None,
+        )
+        return _extract_output_object(response)
