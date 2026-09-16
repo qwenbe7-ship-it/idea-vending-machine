@@ -70,7 +70,8 @@ class AutonomousIdeaVendingHandler(legacy_app.IdeaVendingHandler):
             return
 
         environ = getattr(self.server, "evolve_environ", {})
-        configured = legacy_app._provider_is_configured(environ)
+        injected_runner = getattr(self.server, "evolve_runner", None)
+        configured = callable(injected_runner) or legacy_app._provider_is_configured(environ)
         self._send_json(
             200,
             {
