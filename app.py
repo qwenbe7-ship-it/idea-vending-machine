@@ -34,6 +34,34 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _provider_is_configured(environ: Mapping[str, str]) -> bool:
+    """Validate server-owned provider configuration without contacting the provider."""
+    try:
+        OpenAIProviderConfig.from_environ(environ)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _server_address_from_environ(environ: Mapping[str, str]) -> tuple[str, int]:
+    """Resolve the HTTP bind address from trusted server environment variables."""
+    host = environ.get("HOST", "127.0.0.1")
+    if not isinstance(host, str):
+        raise ValueError("HOST must be text")
+    host = host.strip() or "127.0.0.1"
+
+    raw_port = environ.get("PORT", "8000")
+    if not isinstance(raw_port, str):
+        raise ValueError("PORT must be text")
+    try:
+        port = int(raw_port)
+    except ValueError as exc:
+        raise ValueError("PORT must be an integer") from exc
+    if not 1 <= port <= 65535:
+        raise ValueError("PORT must be between 1 and 65535")
+    return host, port
+
+
 def _build_live_evolve_runner(environ: Mapping[str, str]) -> Callable[[str], dict[str, Any]]:
     """Build the server-owned live provider stack without accepting browser configuration."""
     config = OpenAIProviderConfig.from_environ(environ)
@@ -122,6 +150,20 @@ class IdeaVendingHandler(BaseHTTPRequestHandler):
         return payload.get("idea", "")
 
     def do_GET(self) -> None:
+        if self.path == "/healthz":
+            self._send_json(200, {"status": "ok"})
+            return
+        if self.path == "/readyz":
+            environ = getattr(self.server, "evolve_environ", {})
+            if _provider_is_configured(environ):
+                self._send_json(200, {"status": "ready", "provider": "configured"})
+            else:
+                self._send_json(
+                    503,
+                    {"status": "not_ready", "reason": "provider_not_configured"},
+                )
+            return
+
         static = _STATIC_FILES.get(self.path)
         if not static:
             self._send_json(404, {"error": "not_found"})
@@ -272,8 +314,9 @@ def create_server(
 
 
 def main() -> None:
-    server = create_server()
-    print("Idea Vending Machine running at http://127.0.0.1:8000")
+    host, port = _server_address_from_environ(os.environ)
+    server = create_server(host, port)
+    print(f"Idea Vending Machine running at http://{host}:{port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
