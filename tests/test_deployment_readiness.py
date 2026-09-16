@@ -4,7 +4,7 @@ import unittest
 from urllib.error import HTTPError
 from urllib.request import urlopen
 
-from app import create_server
+from app import _server_address_from_environ, create_server
 
 
 class DeploymentReadinessTests(unittest.TestCase):
@@ -56,6 +56,21 @@ class DeploymentReadinessTests(unittest.TestCase):
         status, payload = self.get_json(server, "/readyz")
         self.assertEqual(status, 200)
         self.assertEqual(payload, {"status": "ready", "provider": "configured"})
+
+    def test_server_address_defaults_to_localhost_8000(self):
+        self.assertEqual(_server_address_from_environ({}), ("127.0.0.1", 8000))
+
+    def test_server_address_uses_render_host_and_port(self):
+        self.assertEqual(
+            _server_address_from_environ({"HOST": "0.0.0.0", "PORT": "10000"}),
+            ("0.0.0.0", 10000),
+        )
+
+    def test_invalid_port_is_rejected(self):
+        for value in ("zero", "0", "65536"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    _server_address_from_environ({"PORT": value})
 
 
 if __name__ == "__main__":
