@@ -34,6 +34,15 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _provider_is_configured(environ: Mapping[str, str]) -> bool:
+    """Validate server-owned provider configuration without contacting the provider."""
+    try:
+        OpenAIProviderConfig.from_environ(environ)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 def _build_live_evolve_runner(environ: Mapping[str, str]) -> Callable[[str], dict[str, Any]]:
     """Build the server-owned live provider stack without accepting browser configuration."""
     config = OpenAIProviderConfig.from_environ(environ)
@@ -122,6 +131,20 @@ class IdeaVendingHandler(BaseHTTPRequestHandler):
         return payload.get("idea", "")
 
     def do_GET(self) -> None:
+        if self.path == "/healthz":
+            self._send_json(200, {"status": "ok"})
+            return
+        if self.path == "/readyz":
+            environ = getattr(self.server, "evolve_environ", {})
+            if _provider_is_configured(environ):
+                self._send_json(200, {"status": "ready", "provider": "configured"})
+            else:
+                self._send_json(
+                    503,
+                    {"status": "not_ready", "reason": "provider_not_configured"},
+                )
+            return
+
         static = _STATIC_FILES.get(self.path)
         if not static:
             self._send_json(404, {"error": "not_found"})
