@@ -14,6 +14,7 @@ from typing import Any
 from src.idea_vending import evidence_attachment as _evidence_attachment
 from src.idea_vending import evolution_runtime_core as _core
 from src.idea_vending import evolution_schema_core as _schema_core
+from src.idea_vending.candidate_forge import CANDIDATE_FAMILIES
 from src.idea_vending.evolution_schema import validate_complete_report as _validate_e2a_complete_report
 from src.idea_vending.independent_evaluator import ingest_evaluator_output
 from src.idea_vending.reality_evaluation import derive_reality_assessment
@@ -63,6 +64,45 @@ def _validate_core_state_evidence_phase(
 # strict and run after the assessments are attached below.
 _core.validate_complete_report = _validate_core_report_phase
 _core.validate_state_evidence_against_graph = _validate_core_state_evidence_phase
+
+
+class _E2AIdeationProvider:
+    """Strengthen only the candidate-forge request before it reaches the provider."""
+
+    def __init__(self, delegate: Any) -> None:
+        self._delegate = delegate
+
+    @property
+    def last_run_metadata(self) -> Any:
+        return getattr(self._delegate, "last_run_metadata", None)
+
+    def generate(self, request: dict[str, Any]) -> dict[str, Any]:
+        forwarded = deepcopy(request)
+        if forwarded.get("operation") == "forge_candidates":
+            families = sorted(CANDIDATE_FAMILIES)
+            forwarded["objective"] = (
+                "Forge exactly ten structurally distinct candidate concepts, exactly one "
+                "for each canonical E2A family."
+            )
+            constraints = list(forwarded.get("constraints", []))
+            constraints.extend(
+                [
+                    "Return exactly ten candidates; do not omit, merge, or duplicate a family.",
+                    "Canonical families are: " + ", ".join(families) + ".",
+                ]
+            )
+            forwarded["constraints"] = constraints
+
+            schema = deepcopy(forwarded.get("required_output_schema"))
+            try:
+                family_schema = schema["properties"]["candidates"]["items"]["properties"]["family"]
+            except (KeyError, TypeError):
+                raise ValueError("forge candidate schema does not expose family")
+            if not isinstance(family_schema, dict):
+                raise ValueError("forge candidate family schema must be an object")
+            family_schema["enum"] = families
+            forwarded["required_output_schema"] = schema
+        return self._delegate.generate(forwarded)
 
 
 class _CapturingEvaluationProvider:
@@ -167,11 +207,12 @@ def run_evolution(
     event_sink: Any = None,
 ) -> dict[str, Any]:
     """Run E1 and attach ten deterministic E2A Reality Assessments on success."""
+    e2a_ideation_provider = _E2AIdeationProvider(ideation_provider)
     capturing_evaluator = _CapturingEvaluationProvider(evaluation_provider)
     result = _core.run_evolution(
         idea,
         research_provider=research_provider,
-        ideation_provider=ideation_provider,
+        ideation_provider=e2a_ideation_provider,
         evaluation_provider=capturing_evaluator,
         now_provider=now_provider,
         event_sink=event_sink,
