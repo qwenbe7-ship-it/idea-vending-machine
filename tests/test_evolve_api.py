@@ -5,43 +5,48 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from app import create_server
+from src.idea_vending.evolution_runtime import run_evolution
+from tests.test_evolution_runtime import (
+    BrokenIdeationProvider,
+    FakeEvaluationProvider,
+    FakeIdeationProvider,
+    FakeResearchProvider,
+    NOW,
+    TimeoutResearchProvider,
+)
 
 
 IDEA = "고객 문의를 자동 분류하고 반복 업무를 예방하는 운영 시스템"
 
 
-def completed_result(idea):
-    return {
-        "runtime": {
-            "runtime_id": "run_http0001",
-            "evolution_id": "evo_http0001",
-            "status": "completed",
-            "current_stage": "report_assembly",
-            "stage_events": [],
-            "provider_runs": [],
-            "failure": None,
-            "started_at": "2026-09-16T06:00:00+00:00",
-            "completed_at": "2026-09-16T06:01:00+00:00",
-        },
-        "state": {"raw_idea": idea, "decision": "GO", "human_decision": None},
-        "evidence_graph": {"records": []},
-        "candidates": [],
-        "decision_result": {"decision": "GO"},
-        "report": {"thesis": "GO test"},
-    }
+def completed_result(idea, scenario="go"):
+    return run_evolution(
+        idea,
+        research_provider=FakeResearchProvider(),
+        ideation_provider=FakeIdeationProvider(),
+        evaluation_provider=FakeEvaluationProvider(scenario),
+        now_provider=lambda: NOW,
+    )
 
 
 def incomplete_result(idea):
-    result = completed_result(idea)
-    result["runtime"]["status"] = "incomplete"
-    result["runtime"]["failure"] = {
-        "code": "provider_timeout",
-        "stage": "landscape_research",
-    }
-    result["state"]["decision"] = None
-    result["decision_result"] = None
-    result["report"] = None
-    return result
+    return run_evolution(
+        idea,
+        research_provider=TimeoutResearchProvider(),
+        ideation_provider=FakeIdeationProvider(),
+        evaluation_provider=FakeEvaluationProvider("go"),
+        now_provider=lambda: NOW,
+    )
+
+
+def failed_result(idea):
+    return run_evolution(
+        idea,
+        research_provider=FakeResearchProvider(),
+        ideation_provider=BrokenIdeationProvider(),
+        evaluation_provider=FakeEvaluationProvider("go"),
+        now_provider=lambda: NOW,
+    )
 
 
 class EvolveAPITests(unittest.TestCase):
@@ -63,8 +68,8 @@ class EvolveAPITests(unittest.TestCase):
         self.addCleanup(cleanup)
         return server
 
-    def post(self, server, payload, content_type="application/json"):
-        url = f"http://127.0.0.1:{server.server_address[1]}/api/evolve"
+    def post(self, server, payload, content_type="application/json", path="/api/evolve"):
+        url = f"http://127.0.0.1:{server.server_address[1]}{path}"
         data = json.dumps(payload).encode("utf-8") if content_type == "application/json" else b"idea=x"
         request = Request(
             url,
@@ -73,6 +78,23 @@ class EvolveAPITests(unittest.TestCase):
             method="POST",
         )
         return urlopen(request)
+
+    def evolve(self, server, scenario="go"):
+        server.evolve_runner = lambda idea: completed_result(idea, scenario)
+        with self.post(server, {"idea": IDEA}) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        self.assertEqual(response.status, 200)
+        return payload
+
+    def approve(self, server, runtime_id):
+        with self.post(
+            server,
+            {"runtime_id": runtime_id},
+            path="/api/evolve/approve",
+        ) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        self.assertEqual(response.status, 200)
+        return payload
 
     def test_valid_evolve_request_passes_only_idea_to_injected_runner(self):
         calls = []
@@ -142,6 +164,116 @@ class EvolveAPITests(unittest.TestCase):
         with self.assertRaises(HTTPError) as caught:
             self.post(server, {"idea": IDEA}, content_type="text/plain")
         self.assertEqual(caught.exception.code, 415)
+
+    def test_completed_evolve_is_persisted_by_trusted_runtime_id(self):
+        server = self.start_server(runner=completed_result)
+        with self.post(server, {"idea": IDEA}) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        runtime_id = payload["runtime"]["runtime_id"]
+
+        record = server.assessment_store.get(runtime_id)
+
+        self.assertIsNotNone(record)
+        self.assertEqual(record["result"]["state"], payload["state"])
+        self.assertFalse(record["approved"])
+
+    def test_approval_accepts_only_runtime_id(self):
+        server = self.start_server(runner=completed_result)
+        forbidden = [
+            ("decision", "GO"),
+            ("human_decision", "proceed"),
+            ("selected_concept_id", "candidate_override"),
+            ("confidence", "high"),
+            ("model", "user-model"),
+            ("api_key", "sk-user"),
+        ]
+        for key, value in forbidden:
+            with self.subTest(key=key):
+                with self.assertRaises(HTTPError) as caught:
+                    self.post(
+                        server,
+                        {"runtime_id": "run_missing0001", key: value},
+                        path="/api/evolve/approve",
+                    )
+                self.assertEqual(caught.exception.code, 400)
+                body = json.loads(caught.exception.read().decode("utf-8"))
+                self.assertEqual(body["error"], "approve_request_only_accepts_runtime_id")
+
+    def test_go_approval_sets_server_owned_proceed_and_returns_development_package(self):
+        server = self.start_server(runner=completed_result)
+        evolved = self.evolve(server, "go")
+        runtime_id = evolved["runtime"]["runtime_id"]
+
+        approved = self.approve(server, runtime_id)
+
+        self.assertEqual(approved["runtime_id"], runtime_id)
+        self.assertEqual(approved["decision"], "GO")
+        self.assertEqual(approved["human_decision"], "proceed")
+        self.assertEqual(set(approved["documents"]), {"spec.md", "design.md", "plan.md"})
+        self.assertIn(evolved["state"]["raw_idea"], approved["documents"]["spec.md"])
+
+    def test_modify_approval_uses_selected_evolved_idea(self):
+        server = self.start_server(runner=completed_result)
+        evolved = self.evolve(server, "modify")
+        runtime_id = evolved["runtime"]["runtime_id"]
+        self.assertEqual(evolved["state"]["decision"], "MODIFY")
+
+        approved = self.approve(server, runtime_id)
+
+        self.assertEqual(approved["decision"], "MODIFY")
+        self.assertIn(evolved["state"]["evolved_idea"], approved["documents"]["spec.md"])
+
+    def test_approval_replay_returns_identical_documents(self):
+        server = self.start_server(runner=completed_result)
+        evolved = self.evolve(server, "go")
+        runtime_id = evolved["runtime"]["runtime_id"]
+
+        first = self.approve(server, runtime_id)
+        second = self.approve(server, runtime_id)
+
+        self.assertEqual(first, second)
+        self.assertEqual(first["documents"], second["documents"])
+
+    def test_hold_and_kill_cannot_be_approved(self):
+        for scenario in ("hold", "kill"):
+            with self.subTest(scenario=scenario):
+                server = self.start_server(runner=completed_result)
+                evolved = self.evolve(server, scenario)
+                runtime_id = evolved["runtime"]["runtime_id"]
+                self.assertEqual(evolved["state"]["decision"], scenario.upper())
+
+                with self.assertRaises(HTTPError) as caught:
+                    self.post(
+                        server,
+                        {"runtime_id": runtime_id},
+                        path="/api/evolve/approve",
+                    )
+                self.assertEqual(caught.exception.code, 409)
+                body = json.loads(caught.exception.read().decode("utf-8"))
+                self.assertEqual(body["error"], "development_handoff_blocked")
+                self.assertEqual(body["decision"], scenario.upper())
+
+    def test_unknown_or_expired_runtime_is_not_approvable(self):
+        server = self.start_server(runner=completed_result)
+        with self.assertRaises(HTTPError) as caught:
+            self.post(
+                server,
+                {"runtime_id": "run_missing0001"},
+                path="/api/evolve/approve",
+            )
+        self.assertEqual(caught.exception.code, 404)
+        body = json.loads(caught.exception.read().decode("utf-8"))
+        self.assertEqual(body["error"], "assessment_not_found_or_expired")
+
+    def test_incomplete_and_failed_results_are_never_persisted(self):
+        for runner, expected_status in ((incomplete_result, "incomplete"), (failed_result, "failed")):
+            with self.subTest(expected_status=expected_status):
+                server = self.start_server(runner=runner)
+                with self.post(server, {"idea": IDEA}) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                runtime_id = payload["runtime"]["runtime_id"]
+                self.assertEqual(payload["runtime"]["status"], expected_status)
+                self.assertIsNone(server.assessment_store.get(runtime_id))
 
 
 if __name__ == "__main__":
