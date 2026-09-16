@@ -47,7 +47,7 @@ class RuntimePhaseSplitTests(unittest.TestCase):
             CANDIDATE_FAMILIES,
         )
         self.assertIsNone(forge["state"]["decision"])
-        self.assertEqual(forge["state"]["report_status"], "pending")
+        self.assertEqual(forge["state"]["report_status"], "draft")
         operations = [run["operation"] for run in forge["runtime"]["provider_runs"]]
         self.assertNotIn("independent_evaluation", operations)
 
