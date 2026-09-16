@@ -1,4 +1,5 @@
 from copy import deepcopy
+import threading
 import unittest
 
 from src.idea_vending.assessment_store import AssessmentStore
@@ -44,6 +45,10 @@ def incomplete_result():
 
 
 class AssessmentStoreTests(unittest.TestCase):
+    def test_store_has_reentrant_lock_for_threading_http_server(self):
+        store = AssessmentStore()
+        self.assertIsInstance(store._lock, type(threading.RLock()))
+
     def test_save_completed_returns_trusted_runtime_id_and_unapproved_record(self):
         clock = FakeClock()
         store = AssessmentStore(max_entries=2, ttl_seconds=10, clock=clock)
@@ -124,6 +129,34 @@ class AssessmentStoreTests(unittest.TestCase):
         self.assertEqual(first["documents"]["spec.md"], "spec v1")
         self.assertEqual(second["documents"], first["documents"])
         self.assertNotEqual(second["approved_state"]["decision"], "KILL")
+
+    def test_idempotent_resave_does_not_clear_existing_approval(self):
+        store = AssessmentStore()
+        result = completed_result("idempotent")
+        runtime_id = store.save_completed(result)
+        state = deepcopy(result["state"])
+        state["human_decision"] = "proceed"
+        documents = {"spec.md": "spec", "design.md": "design", "plan.md": "plan"}
+        store.mark_approved(runtime_id, state, documents)
+
+        returned_id = store.save_completed(deepcopy(result))
+        record = store.get(runtime_id)
+
+        self.assertEqual(returned_id, runtime_id)
+        self.assertTrue(record["approved"])
+        self.assertEqual(record["documents"], documents)
+
+    def test_same_runtime_id_with_different_result_is_rejected(self):
+        store = AssessmentStore()
+        result = completed_result("collision")
+        runtime_id = store.save_completed(result)
+        mutated = deepcopy(result)
+        mutated["report"] = {"thesis": "different top-level result with same trusted runtime id"}
+
+        with self.assertRaisesRegex(ValueError, "runtime_id collision"):
+            store.save_completed(mutated)
+
+        self.assertEqual(store.get(runtime_id)["result"], result)
 
     def test_constructor_rejects_nonpositive_capacity_or_ttl(self):
         with self.assertRaises(ValueError):
