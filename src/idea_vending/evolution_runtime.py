@@ -14,9 +14,11 @@ from typing import Any
 from src.idea_vending import evidence_attachment as _evidence_attachment
 from src.idea_vending import evolution_runtime_core as _core
 from src.idea_vending import evolution_schema_core as _schema_core
+from src.idea_vending.analyzer import analyze_idea
 from src.idea_vending.candidate_forge import CANDIDATE_FAMILIES
 from src.idea_vending.evolution_schema import validate_complete_report as _validate_e2a_complete_report
 from src.idea_vending.independent_evaluator import ingest_evaluator_output
+from src.idea_vending.provider_transport import ProviderTimeout
 from src.idea_vending.reality_evaluation import derive_reality_assessment
 
 # Preserve the E1 module surface, including private helpers used by tests or
@@ -124,6 +126,26 @@ class _CapturingEvaluationProvider:
         return output
 
 
+class _ForgeBoundaryEvaluationProvider:
+    """Capture the trusted evaluator request and stop before any Judge execution."""
+
+    def __init__(self) -> None:
+        self.request: dict[str, Any] | None = None
+
+    def evaluate(self, request: dict[str, Any]) -> dict[str, Any]:
+        self.request = deepcopy(request)
+        raise ProviderTimeout("forge phase boundary")
+
+
+class ForgeArtifact(dict):
+    """Trusted in-memory Forge artifact with non-serialized replay providers."""
+
+    def __init__(self, *args: Any, research_provider: Any, ideation_provider: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._research_provider = research_provider
+        self._ideation_provider = ideation_provider
+
+
 def _derive_candidate_reality_assessments(
     *,
     result: dict[str, Any],
@@ -195,6 +217,83 @@ def _derive_candidate_reality_assessments(
             )
         )
     return assessments, critiques
+
+
+def run_forge_phase(
+    idea: str,
+    *,
+    research_provider: Any,
+    ideation_provider: Any,
+    now_provider: Any,
+    event_sink: Any = None,
+) -> ForgeArtifact:
+    """Run the verified pipeline through collision research, then stop before Judge execution."""
+    boundary = _ForgeBoundaryEvaluationProvider()
+    result = _core.run_evolution(
+        idea,
+        research_provider=research_provider,
+        ideation_provider=_E2AIdeationProvider(ideation_provider),
+        evaluation_provider=boundary,
+        now_provider=now_provider,
+        event_sink=event_sink,
+    )
+    if boundary.request is None:
+        raise ValueError("forge phase did not reach the independent evaluation boundary")
+    state = result.get("state")
+    graph = result.get("evidence_graph")
+    runtime = result.get("runtime")
+    candidates = result.get("candidates")
+    if not isinstance(state, dict) or not isinstance(graph, dict) or not isinstance(runtime, dict):
+        raise ValueError("forge phase returned an invalid trusted intermediate result")
+    if not isinstance(candidates, list) or len(candidates) != 10:
+        raise ValueError("forge phase must contain exactly ten trusted candidates")
+    request = boundary.request
+    baseline = request.get("baseline")
+    feasibility_artifacts = request.get("feasibility_artifacts")
+    collision_state = request.get("collision_state")
+    if not isinstance(baseline, dict) or not isinstance(feasibility_artifacts, dict) or not isinstance(collision_state, dict):
+        raise ValueError("forge phase evaluator boundary is missing trusted context")
+    return ForgeArtifact(
+        {
+            "analysis": analyze_idea(idea),
+            "state": deepcopy(state),
+            "evidence_graph": deepcopy(graph),
+            "runtime": deepcopy(runtime),
+            "baseline": deepcopy(baseline),
+            "assumptions": [],
+            "challenges": [],
+            "transformations": [],
+            "mechanisms": [],
+            "candidates": deepcopy(candidates),
+            "feasibility_artifacts": deepcopy(feasibility_artifacts),
+            "collision_state": deepcopy(collision_state),
+        },
+        research_provider=research_provider,
+        ideation_provider=ideation_provider,
+    )
+
+
+def finalize_evolution_from_forge(
+    forge_artifact: ForgeArtifact,
+    *,
+    evaluation_provider: Any,
+    now_provider: Any,
+    event_sink: Any = None,
+) -> dict[str, Any]:
+    """Replay a validated Forge input through the same public E2A runtime with a fresh Judge."""
+    if not isinstance(forge_artifact, ForgeArtifact):
+        raise ValueError("forge_artifact must be a trusted ForgeArtifact")
+    state = forge_artifact.get("state")
+    if not isinstance(state, dict) or not isinstance(state.get("raw_idea"), str):
+        raise ValueError("forge_artifact is missing raw_idea")
+    return run_evolution(
+        state["raw_idea"],
+        research_provider=forge_artifact._research_provider,
+        ideation_provider=forge_artifact._ideation_provider,
+        evaluation_provider=evaluation_provider,
+        now_provider=now_provider,
+        event_sink=event_sink,
+    )
 
 
 def run_evolution(
