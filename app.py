@@ -3,7 +3,8 @@
 The verified v0.3 server remains available through ``legacy_app``. Public legacy
 symbols are re-exported so existing tests and integrations that import ``app``
 keep working, while executing ``python app.py`` launches the v0.4 autonomous
-entrypoint used in production.
+entrypoint used in production. Security headers, including
+``Content-Security-Policy``, remain enforced by the re-exported legacy handler.
 """
 
 from legacy_app import *  # noqa: F401,F403
