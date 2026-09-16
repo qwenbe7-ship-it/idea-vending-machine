@@ -1,5 +1,6 @@
 import unittest
 
+from src.idea_vending.candidate_forge import CANDIDATE_FAMILIES
 from src.idea_vending.evaluator_contract import EVALUATION_DIMENSIONS
 from src.idea_vending.evidence_graph import create_evidence_record
 from src.idea_vending.evolution_runtime import run_evolution
@@ -8,6 +9,18 @@ from src.idea_vending.provider_transport import ProviderTimeout
 
 NOW = "2026-09-16T06:00:00+00:00"
 TODAY = "2026-09-16"
+FAMILIES = [
+    "adjacent_innovation",
+    "category_shift",
+    "zero_based_reinvention",
+    "axion_automation",
+    "prevention_shift_left",
+    "outcome_execution",
+    "workflow_infrastructure",
+    "data_decision_asset",
+    "buyer_revenue_inversion",
+    "compounding_asset",
+]
 
 
 def make_evidence(
@@ -229,14 +242,8 @@ class FakeIdeationProvider:
                 ]
             }
         if operation == "forge_candidates":
-            families = [
-                "adjacent_innovation",
-                "category_shift",
-                "zero_based_reinvention",
-                "axion_candidate",
-            ]
             candidates = []
-            for index, family in enumerate(families):
+            for index, family in enumerate(FAMILIES):
                 candidates.append(
                     {
                         "family": family,
@@ -274,6 +281,14 @@ class FakeIdeationProvider:
                 )
             return {"candidates": candidates}
         raise AssertionError(f"unexpected operation: {operation}")
+
+
+class NineCandidateIdeationProvider(FakeIdeationProvider):
+    def generate(self, request):
+        result = super().generate(request)
+        if request["operation"] == "forge_candidates":
+            return {"candidates": result["candidates"][:9]}
+        return result
 
 
 class BrokenIdeationProvider(FakeIdeationProvider):
@@ -393,7 +408,13 @@ class EvolutionRuntimeTests(unittest.TestCase):
         self.assertEqual(result["state"]["report_status"], "complete")
         self.assertEqual(result["decision_result"]["decision"], "GO")
         self.assertTrue(result["evidence_graph"]["records"])
-        self.assertEqual(len(result["candidates"]), 4)
+        self.assertEqual(len(result["candidates"]), 10)
+        self.assertEqual({item["family"] for item in result["candidates"]}, CANDIDATE_FAMILIES)
+        self.assertEqual(len(result["candidate_reality_assessments"]), 10)
+        self.assertEqual(
+            {item["candidate_id"] for item in result["candidate_reality_assessments"]},
+            {item["candidate_id"] for item in result["candidates"]},
+        )
         self.assertEqual(result["report"], result["state"]["executive_brief"])
         self.assertEqual(events, result["runtime"]["stage_events"])
         self.assertEqual(
@@ -437,6 +458,18 @@ class EvolutionRuntimeTests(unittest.TestCase):
         self.assertEqual(result["runtime"]["status"], "completed")
         self.assertEqual(result["state"]["decision"], "KILL")
         self.assertIsNone(result["runtime"]["failure"])
+
+    def test_nine_candidate_provider_result_is_incomplete_without_verdict(self):
+        result = run_evolution(
+            "고객 문의를 자동 분류하고 반복 업무를 예방하는 운영 시스템",
+            research_provider=FakeResearchProvider(),
+            ideation_provider=NineCandidateIdeationProvider(),
+            evaluation_provider=FakeEvaluationProvider("go"),
+            now_provider=lambda: NOW,
+        )
+        self.assertEqual(result["runtime"]["status"], "incomplete")
+        self.assertEqual(result["runtime"]["failure"]["code"], "candidate_admission_blocked")
+        self.assertIsNone(result["state"]["decision"])
 
     def test_provider_timeout_is_incomplete_and_never_business_verdict(self):
         result = run_evolution(

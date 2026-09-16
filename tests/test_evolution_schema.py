@@ -1,5 +1,7 @@
 import unittest
 
+from src.idea_vending.candidate_forge import CANDIDATE_FAMILIES
+from src.idea_vending.evaluator_contract import EVALUATION_DIMENSIONS
 from src.idea_vending.evolution_schema import (
     DETAIL_SECTION_KEYS,
     create_evolution_state,
@@ -8,6 +10,32 @@ from src.idea_vending.evolution_schema import (
     validate_evolution_state,
     validate_executive_brief,
 )
+
+
+def make_reality_assessments():
+    records = []
+    for index, family in enumerate(sorted(CANDIDATE_FAMILIES)):
+        records.append(
+            {
+                "candidate_id": f"candidate_{index:012x}",
+                "family": family,
+                "name": f"Reality candidate {index}",
+                "one_sentence_concept": f"Evidence-aware evolved concept {index}",
+                "reality_verdict": "ADVANCE" if index == 0 else "HOLD",
+                "confidence": "medium",
+                "strongest_reason_for": f"Evidence-backed value reason {index}",
+                "strongest_reason_against": f"Evidence-backed risk reason {index}",
+                "dimension_statuses": {
+                    dimension: ("strong" if index == 0 else "mixed")
+                    for dimension in EVALUATION_DIMENSIONS
+                },
+                "hard_or_material_blockers": [],
+                "material_unknowns": [] if index == 0 else [f"Unknown {index}"],
+                "cheapest_next_validation": f"Run validation {index}",
+                "evidence_claim_ids": ["claim-market-1"],
+            }
+        )
+    return records
 
 
 def make_complete_state():
@@ -22,6 +50,7 @@ def make_complete_state():
     state["human_decision"] = "proceed"
     state["selected_concept_id"] = "candidate-category-shift"
     state["evidence_refs"] = ["claim-market-1", "claim-market-2", "claim-risk-1"]
+    state["candidate_reality_assessments"] = make_reality_assessments()
     state["executive_brief"] = {
         "thesis": "단순 답변 초안보다 문의 발생 자체를 줄이는 운영 시스템으로 확장할 가치가 있다.",
         "why_now": "AI 자동화와 고객지원 운영 데이터가 동시에 축적되고 있다.",
@@ -74,6 +103,7 @@ class EvolutionStateTests(unittest.TestCase):
         self.assertIsNone(state["decision"])
         self.assertIsNone(state["human_decision"])
         self.assertEqual(state["evidence_refs"], [])
+        self.assertEqual(state["candidate_reality_assessments"], [])
 
     def test_state_has_stable_required_keys(self):
         state = create_evolution_state(
@@ -95,6 +125,7 @@ class EvolutionStateTests(unittest.TestCase):
                 "executive_brief",
                 "detailed_analysis",
                 "evidence_refs",
+                "candidate_reality_assessments",
             },
         )
 

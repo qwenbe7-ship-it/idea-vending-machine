@@ -11,6 +11,7 @@ from src.idea_vending.evidence_graph import (
     create_evidence_record,
 )
 from src.idea_vending.evolution_schema import DETAIL_SECTION_KEYS, create_evolution_state
+from tests.test_evolution_schema import make_reality_assessments
 
 
 class EvidenceAttachmentTests(unittest.TestCase):
@@ -58,6 +59,10 @@ class EvidenceAttachmentTests(unittest.TestCase):
         state = self.make_state()
         state["report_status"] = "complete"
         state["evidence_refs"] = ["claim_attach001"]
+        assessments = make_reality_assessments()
+        for assessment in assessments:
+            assessment["evidence_claim_ids"] = ["claim_attach001"]
+        state["candidate_reality_assessments"] = assessments
         state["executive_brief"] = {
             "thesis": "검증된 근거가 있을 때만 투자 판단을 진행한다.",
             "why_now": "AI 도입 확산과 의사결정 품질 격차가 동시에 커지고 있다.",

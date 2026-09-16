@@ -19,6 +19,32 @@ from src.idea_vending.mechanism_transfer import create_mechanism_transfer
 from src.idea_vending.reframing import create_transformation_test
 
 
+FAMILIES = [
+    "adjacent_innovation",
+    "category_shift",
+    "zero_based_reinvention",
+    "axion_automation",
+    "prevention_shift_left",
+    "outcome_execution",
+    "workflow_infrastructure",
+    "data_decision_asset",
+    "buyer_revenue_inversion",
+    "compounding_asset",
+]
+TRANSFORMATION_PAIRS = [
+    ["AFTER_TO_BEFORE", "DOCUMENT_TO_DATA"],
+    ["TOOL_TO_WORKFLOW", "DATA_TO_DECISION"],
+    ["INPUT_TO_OBSERVE", "DECISION_TO_ACTION"],
+    ["SERVICE_TO_ASSET", "ONE_TIME_TO_COMPOUNDING"],
+    ["REPAIR_TO_PREVENT", "AFTER_TO_BEFORE"],
+    ["ADVISE_TO_EXECUTE", "DECISION_TO_ACTION"],
+    ["WORKFLOW_TO_INFRASTRUCTURE", "TOOL_TO_WORKFLOW"],
+    ["DOCUMENT_TO_DATA", "DATA_TO_DECISION"],
+    ["SEARCH_TO_PREDICT", "ADVISE_TO_EXECUTE"],
+    ["SERVICE_TO_ASSET", "DATA_TO_DECISION"],
+]
+
+
 def graph_with_claim():
     graph = create_evidence_graph("evo_candidate01")
     record = create_evidence_record(
@@ -89,12 +115,7 @@ def candidate_fields_for_family(family, index, *, transfer_id=None):
         problem_reframe=f"Distinct root problem framing {index}",
         workflow_after=f"Distinct target workflow {index}",
         value_capture_model=f"Distinct value capture model {index}",
-        transformations_used=[
-            ["AFTER_TO_BEFORE", "DOCUMENT_TO_DATA"],
-            ["TOOL_TO_WORKFLOW", "DATA_TO_DECISION"],
-            ["INPUT_TO_OBSERVE", "DECISION_TO_ACTION"],
-            ["SERVICE_TO_ASSET", "ONE_TIME_TO_COMPOUNDING"],
-        ][index - 1],
+        transformations_used=TRANSFORMATION_PAIRS[(index - 1) % len(TRANSFORMATION_PAIRS)],
         mechanism_transfer_ids=[transfer_id or f"transfer_{index:012d}"],
         value_creation_chain={
             "current_constraint": f"Constraint {index}",
@@ -114,15 +135,9 @@ def candidate_for_family(graph, family, index):
 
 def admission_fixture():
     graph = graph_with_claim()
-    families = [
-        "adjacent_innovation",
-        "category_shift",
-        "zero_based_reinvention",
-        "axion_candidate",
-    ]
     transfers = []
     candidates = []
-    for index, family in enumerate(families, start=1):
+    for index, family in enumerate(FAMILIES, start=1):
         transfer = create_mechanism_transfer(
             graph=graph,
             source_domain=f"Source domain {index}",
@@ -167,15 +182,7 @@ def admission_fixture():
 
 class CandidateContractTests(unittest.TestCase):
     def test_family_and_value_chain_vocabularies_are_exact(self):
-        self.assertEqual(
-            CANDIDATE_FAMILIES,
-            {
-                "adjacent_innovation",
-                "category_shift",
-                "zero_based_reinvention",
-                "axion_candidate",
-            },
-        )
+        self.assertEqual(CANDIDATE_FAMILIES, set(FAMILIES))
         self.assertEqual(
             VALUE_CHAIN_KEYS,
             {
@@ -202,9 +209,7 @@ class CandidateContractTests(unittest.TestCase):
     def test_provider_cannot_supply_candidate_id_or_score(self):
         with self.assertRaises(TypeError):
             create_candidate(
-                graph=graph_with_claim(),
-                candidate_id="candidate_provider",
-                **VALID_FIELDS,
+                graph=graph_with_claim(), candidate_id="candidate_provider", **VALID_FIELDS
             )
         with self.assertRaises(TypeError):
             create_candidate(graph=graph_with_claim(), score=99, **VALID_FIELDS)
@@ -250,31 +255,21 @@ class CandidateContractTests(unittest.TestCase):
 
 
 class DiversityAndCausalGateTests(unittest.TestCase):
-    def test_structurally_distinct_four_family_set_is_diversity_ready(self):
+    def test_structurally_distinct_ten_family_set_is_diversity_ready(self):
         graph = graph_with_claim()
         candidates = [
-            candidate_for_family(graph, "adjacent_innovation", 1),
-            candidate_for_family(graph, "category_shift", 2),
-            candidate_for_family(graph, "zero_based_reinvention", 3),
-            candidate_for_family(graph, "axion_candidate", 4),
+            candidate_for_family(graph, family, index)
+            for index, family in enumerate(FAMILIES, start=1)
         ]
         audit = audit_candidate_diversity(candidates)
         self.assertTrue(audit["diversity_ready"])
         self.assertEqual(audit["collapsed_candidate_ids"], [])
-        self.assertEqual(len(audit["pairwise_differences"]), 6)
+        self.assertEqual(len(audit["pairwise_differences"]), 45)
 
     def test_cosmetic_variants_collapse_even_when_names_differ(self):
         graph = graph_with_claim()
         candidates = []
-        for index, family in enumerate(
-            [
-                "adjacent_innovation",
-                "category_shift",
-                "zero_based_reinvention",
-                "axion_candidate",
-            ],
-            start=1,
-        ):
+        for index, family in enumerate(FAMILIES, start=1):
             fields = dict(VALID_FIELDS)
             fields["family"] = family
             fields["name"] = f"Marketing Name {index}"
@@ -282,7 +277,7 @@ class DiversityAndCausalGateTests(unittest.TestCase):
             candidates.append(create_candidate(graph=graph, **fields))
         audit = audit_candidate_diversity(candidates)
         self.assertFalse(audit["diversity_ready"])
-        self.assertEqual(len(audit["collapsed_candidate_ids"]), 4)
+        self.assertEqual(len(audit["collapsed_candidate_ids"]), 10)
 
     def test_causal_gate_rejects_missing_link_in_mutated_candidate(self):
         candidate = create_candidate(graph=graph_with_claim(), **VALID_FIELDS)
@@ -292,48 +287,30 @@ class DiversityAndCausalGateTests(unittest.TestCase):
 
 
 class FamilyCoverageTests(unittest.TestCase):
-    def test_all_four_generated_families_are_ready(self):
+    def test_all_ten_generated_families_are_ready(self):
         graph = graph_with_claim()
         candidates = [
-            candidate_for_family(graph, "adjacent_innovation", 1),
-            candidate_for_family(graph, "category_shift", 2),
-            candidate_for_family(graph, "zero_based_reinvention", 3),
-            candidate_for_family(graph, "axion_candidate", 4),
+            candidate_for_family(graph, family, index)
+            for index, family in enumerate(FAMILIES, start=1)
         ]
         audit = audit_family_coverage(candidates)
         self.assertTrue(audit["family_ready"])
         self.assertEqual(audit["missing_families"], [])
+        self.assertEqual(audit["duplicate_families"], [])
 
-    def test_non_applicable_family_requires_reason(self):
+    def test_nine_families_are_not_ready(self):
         graph = graph_with_claim()
-        candidates = [candidate_for_family(graph, "adjacent_innovation", 1)]
-        audit = audit_family_coverage(
-            candidates,
-            non_applicable_families={
-                "category_shift": "No category shift survives the current evidence.",
-                "zero_based_reinvention": "The workflow is already close to zero-based design.",
-                "axion_candidate": "Automation economics are not applicable to this case.",
-            },
-        )
-        self.assertTrue(audit["family_ready"])
-        with self.assertRaises(ValueError):
-            audit_family_coverage(
-                candidates,
-                non_applicable_families={
-                    "category_shift": "",
-                    "zero_based_reinvention": "Reason",
-                    "axion_candidate": "Reason",
-                },
-            )
+        candidates = [
+            candidate_for_family(graph, family, index)
+            for index, family in enumerate(FAMILIES[:-1], start=1)
+        ]
+        audit = audit_family_coverage(candidates)
+        self.assertFalse(audit["family_ready"])
+        self.assertEqual(audit["missing_families"], ["compounding_asset"])
 
-    def test_family_cannot_be_generated_and_non_applicable(self):
-        graph = graph_with_claim()
-        candidate = candidate_for_family(graph, "category_shift", 2)
-        with self.assertRaises(ValueError):
-            audit_family_coverage(
-                [candidate],
-                non_applicable_families={"category_shift": "Contradictory state"},
-            )
+    def test_non_applicable_escape_hatch_is_not_supported(self):
+        with self.assertRaises(TypeError):
+            audit_family_coverage([], non_applicable_families={"compounding_asset": "skip"})
 
 
 class CollisionResearchRequestTests(unittest.TestCase):
@@ -383,12 +360,7 @@ class CollisionResearchRequestTests(unittest.TestCase):
 class CandidateSetAdmissionTests(unittest.TestCase):
     def test_valid_set_reports_each_gate_and_never_selects_a_winner(self):
         graph, candidates, transfers, transformations = admission_fixture()
-        audit = audit_candidate_set(
-            graph,
-            candidates,
-            transformations,
-            transfers,
-        )
+        audit = audit_candidate_set(graph, candidates, transformations, transfers)
         self.assertEqual(
             set(audit),
             {
@@ -418,12 +390,7 @@ class CandidateSetAdmissionTests(unittest.TestCase):
                 materiality="material",
             )
         ]
-        audit = audit_candidate_set(
-            graph,
-            candidates,
-            one_transformation,
-            transfers,
-        )
+        audit = audit_candidate_set(graph, candidates, one_transformation, transfers)
         self.assertFalse(audit["reframe_ready"])
         self.assertFalse(audit["forge_ready"])
         self.assertTrue(audit["schema_ready"])
@@ -431,29 +398,19 @@ class CandidateSetAdmissionTests(unittest.TestCase):
 
     def test_unknown_mechanism_reference_blocks_mechanism_gate(self):
         graph, candidates, transfers, transformations = admission_fixture()
-        audit = audit_candidate_set(
-            graph,
-            candidates,
-            transformations,
-            transfers[:-1],
-        )
+        audit = audit_candidate_set(graph, candidates, transformations, transfers[:-1])
         self.assertFalse(audit["mechanism_ready"])
         self.assertFalse(audit["forge_ready"])
 
     def test_every_candidate_must_keep_unknowns_or_validation_questions_explicit(self):
         graph, candidates, transfers, transformations = admission_fixture()
         fields = candidate_fields_for_family(
-            "axion_candidate", 4, transfer_id=transfers[3]["transfer_id"]
+            "compounding_asset", 10, transfer_id=transfers[9]["transfer_id"]
         )
         fields["unknowns"] = []
         fields["validation_questions"] = []
         candidates[-1] = create_candidate(graph=graph, **fields)
-        audit = audit_candidate_set(
-            graph,
-            candidates,
-            transformations,
-            transfers,
-        )
+        audit = audit_candidate_set(graph, candidates, transformations, transfers)
         self.assertFalse(audit["unknowns_ready"])
         self.assertFalse(audit["forge_ready"])
 
