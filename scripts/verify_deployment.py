@@ -52,7 +52,7 @@ def check_deployment(
     opener: Callable[[str, float], tuple[int, dict[str, Any]]] = _request_json,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> dict[str, bool]:
-    """Check passive liveness and configuration readiness without provider calls."""
+    """Check public liveness and Bridge-first readiness without provider calls."""
     base = _validated_base_url(base_url)
     if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or timeout <= 0:
         raise ValueError("timeout_must_be_positive")
@@ -62,14 +62,26 @@ def check_deployment(
         raise ValueError("deployment_health_failed")
 
     ready_status, ready_payload = opener(f"{base}/readyz", float(timeout))
-    if ready_status == 200 and ready_payload == {"status": "ready", "provider": "configured"}:
-        return {"health_ok": True, "ready": True}
-    if ready_status == 503 and ready_payload == {
-        "status": "not_ready",
-        "reason": "provider_not_configured",
-    }:
-        return {"health_ok": True, "ready": False}
-    raise ValueError("deployment_readiness_unexpected")
+    if ready_status != 200 or set(ready_payload) != {"status", "default_mode", "modes"}:
+        raise ValueError("deployment_readiness_unexpected")
+    if ready_payload.get("status") != "ready":
+        raise ValueError("deployment_readiness_unexpected")
+    if ready_payload.get("default_mode") != "chatgpt_plus_bridge":
+        raise ValueError("deployment_readiness_unexpected")
+
+    modes = ready_payload.get("modes")
+    if not isinstance(modes, dict) or set(modes) != {"chatgpt_plus_bridge", "openai_api"}:
+        raise ValueError("deployment_readiness_unexpected")
+    if modes.get("chatgpt_plus_bridge") != "ready":
+        raise ValueError("deployment_readiness_unexpected")
+    if modes.get("openai_api") not in {"configured", "not_configured"}:
+        raise ValueError("deployment_readiness_unexpected")
+
+    return {
+        "health_ok": True,
+        "ready": True,
+        "api_configured": modes["openai_api"] == "configured",
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -85,12 +97,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print("PASS: deployment health")
-    if not result["ready"]:
-        print("NOT READY: provider_not_configured")
-        return 2
-
-    print("PASS: provider configuration readiness")
-    print("DEPLOYMENT READY WITH EVIDENCE")
+    print("PASS: ChatGPT Plus Bridge readiness")
+    if result["api_configured"]:
+        print("PASS: optional OpenAI API mode configured")
+    else:
+        print("INFO: optional OpenAI API mode not configured")
+    print("DEPLOYMENT BRIDGE READY WITH EVIDENCE")
     return 0
 
 

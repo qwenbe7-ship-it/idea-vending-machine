@@ -2,6 +2,8 @@ const form = document.querySelector('#idea-form');
 const ideaInput = document.querySelector('#idea');
 const submitButton = document.querySelector('#evolve-submit');
 const status = document.querySelector('#status');
+const bridgeSection = document.querySelector('#bridge-workflow');
+const judgeStep = document.querySelector('#judge-step');
 const runtimeSection = document.querySelector('#runtime-progress');
 const decisionSection = document.querySelector('#executive-decision');
 const candidateSection = document.querySelector('#candidate-section');
@@ -10,6 +12,12 @@ const detailSection = document.querySelector('#detailed-report');
 const packageSection = document.querySelector('#package');
 const approveButton = document.querySelector('#approve-direction');
 
+const MAX_BRIDGE_CLIENT_BYTES = 1024 * 1024;
+
+let currentBridgeSessionId = '';
+let currentBridgeVersion = '';
+let currentForgePackage = null;
+let currentJudgePackage = null;
 let currentRuntimeId = '';
 let currentDocuments = {};
 
@@ -61,17 +69,10 @@ function fillList(selector, values) {
 }
 
 function appendDefinition(list, term, value) {
-  const dt = createElement('dt', '', term);
-  const dd = createElement('dd', '', value);
-  list.append(dt, dd);
+  list.append(createElement('dt', '', term), createElement('dd', '', value));
 }
 
-async function postJson(path, data) {
-  const response = await fetch(path, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(data),
-  });
+async function parseResponse(response) {
   let payload = {};
   try {
     payload = await response.json();
@@ -86,6 +87,18 @@ async function postJson(path, data) {
   return payload;
 }
 
+async function postJson(path, data) {
+  return parseResponse(await fetch(path, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(data),
+  }));
+}
+
+async function getJson(path) {
+  return parseResponse(await fetch(path, {headers: {'Accept': 'application/json'}}));
+}
+
 function hideOutput() {
   for (const section of [runtimeSection, decisionSection, candidateSection, evidenceSection, detailSection, packageSection]) {
     section.hidden = true;
@@ -93,6 +106,132 @@ function hideOutput() {
   currentRuntimeId = '';
   currentDocuments = {};
   approveButton.disabled = true;
+}
+
+function resetBridge() {
+  currentBridgeSessionId = '';
+  currentBridgeVersion = '';
+  currentForgePackage = null;
+  currentJudgePackage = null;
+  bridgeSection.hidden = true;
+  judgeStep.hidden = true;
+  document.querySelector('#forge-result-input').value = '';
+  document.querySelector('#judge-result-input').value = '';
+  setText('#forge-package', '');
+  setText('#judge-package', '');
+  setText('#forge-state', '대기');
+  setText('#judge-state', '대기');
+}
+
+function prettyJson(value) {
+  return JSON.stringify(value, null, 2);
+}
+
+function buildChatGPTPrompt(packageData) {
+  if (!packageData || typeof packageData !== 'object') return '';
+  return `${asText(packageData.chatgpt_instruction, '')}\n\nPACKAGE JSON:\n${prettyJson(packageData)}`;
+}
+
+async function copyText(text, successMessage) {
+  if (!text) {
+    status.textContent = '복사할 데이터가 없습니다.';
+    return;
+  }
+  if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+    status.textContent = '이 브라우저에서는 자동 복사를 사용할 수 없습니다. 화면의 JSON을 직접 복사해 주세요.';
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    status.textContent = successMessage;
+  } catch (_error) {
+    status.textContent = '클립보드 복사 권한을 사용할 수 없습니다. 화면의 내용을 직접 복사해 주세요.';
+  }
+}
+
+function downloadJson(filename, value) {
+  if (!value || typeof value !== 'object') {
+    status.textContent = '다운로드할 JSON이 없습니다.';
+    return;
+  }
+  const blob = new Blob([prettyJson(value)], {type: 'application/json;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function stripCodeFence(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed.startsWith('```')) return trimmed;
+  const firstBreak = trimmed.indexOf('\n');
+  const lastFence = trimmed.lastIndexOf('```');
+  if (firstBreak < 0 || lastFence <= firstBreak) return trimmed;
+  return trimmed.slice(firstBreak + 1, lastFence).trim();
+}
+
+function parseImportedJson(text) {
+  const parsed = JSON.parse(stripCodeFence(text));
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('JSON object가 필요합니다.');
+  }
+  if (
+    Object.hasOwn(parsed, 'bridge_session_id')
+    && Object.hasOwn(parsed, 'bridge_version')
+    && Object.hasOwn(parsed, 'result')
+    && parsed.result
+    && typeof parsed.result === 'object'
+    && !Array.isArray(parsed.result)
+  ) {
+    return parsed.result;
+  }
+  return parsed;
+}
+
+function makeBridgeEnvelope(result) {
+  return {
+    bridge_session_id: currentBridgeSessionId,
+    bridge_version: currentBridgeVersion,
+    result,
+  };
+}
+
+async function loadJsonFile(file, textarea) {
+  if (!file) return;
+  const nameLooksJson = file.name.toLowerCase().endsWith('.json');
+  const typeLooksJson = file.type === 'application/json' || file.type === '';
+  if (!nameLooksJson || !typeLooksJson) {
+    throw new Error('JSON 파일만 선택할 수 있습니다.');
+  }
+  if (file.size <= 0 || file.size > MAX_BRIDGE_CLIENT_BYTES) {
+    throw new Error('JSON 파일은 1MiB 이하만 사용할 수 있습니다.');
+  }
+  textarea.value = await file.text();
+}
+
+function renderBridgePackage(kind, packageData) {
+  const isForge = kind === 'forge';
+  setText(isForge ? '#forge-package' : '#judge-package', prettyJson(packageData));
+  setText(isForge ? '#forge-state' : '#judge-state', isForge ? 'ChatGPT 실행 대기' : '독립 Judge 실행 대기');
+}
+
+async function refreshReadiness() {
+  const indicator = document.querySelector('#api-mode-indicator');
+  try {
+    const ready = await getJson('/readyz');
+    if (ready?.modes?.openai_api === 'configured') {
+      indicator.textContent = '보조 · OpenAI API 모드 사용 가능';
+      indicator.hidden = false;
+    } else {
+      indicator.hidden = true;
+    }
+  } catch (_error) {
+    indicator.hidden = true;
+  }
 }
 
 function renderRuntime(runtime) {
@@ -105,15 +244,14 @@ function renderRuntime(runtime) {
 
   const runtimeStatus = runtime && runtime.status ? runtime.status : 'failed';
   setText('#runtime-state', STATUS_LABELS[runtimeStatus] || runtimeStatus);
-
   for (const event of Array.isArray(runtime?.stage_events) ? runtime.stage_events : []) {
     const item = createElement('li', `timeline-item ${event.status || ''}`);
-    const title = createElement('strong', '', STAGE_LABELS[event.stage] || event.stage);
-    const meta = createElement('span', 'timeline-meta', `${event.status || ''} · ${event.message_code || ''}`);
-    item.append(title, meta);
+    item.append(
+      createElement('strong', '', STAGE_LABELS[event.stage] || event.stage),
+      createElement('span', 'timeline-meta', `${event.status || ''} · ${event.message_code || ''}`),
+    );
     events.appendChild(item);
   }
-
   if (runtime?.failure) {
     failure.textContent = `운영 상태: ${runtime.failure.code} · 단계: ${STAGE_LABELS[runtime.failure.stage] || runtime.failure.stage}`;
     failure.hidden = false;
@@ -124,28 +262,21 @@ function renderMarketSnapshot(market) {
   const container = document.querySelector('#market-snapshot');
   container.replaceChildren();
   if (!market || typeof market !== 'object') return;
-
-  const summary = [
-    ['시장 단계', market.stage],
-    ['핵심 구매자', market.buyer],
-  ];
-  for (const [label, value] of summary) {
+  for (const [label, value] of [['시장 단계', market.stage], ['핵심 구매자', market.buyer]]) {
     const card = createElement('div', 'market-card');
     card.append(createElement('span', 'market-label', label), createElement('strong', '', value));
     container.appendChild(card);
   }
-
-  const groups = [
+  for (const [label, entries] of [
     ['현재 시장', market.current_market],
     ['향후 시장', market.forecast_market],
     ['성장 신호', market.growth],
-  ];
-  for (const [label, entries] of groups) {
+  ]) {
     const card = createElement('div', 'market-card');
     card.appendChild(createElement('span', 'market-label', label));
     const list = createElement('ul', 'compact-list');
     for (const entry of Array.isArray(entries) ? entries : []) {
-      list.appendChild(createElement('li', '', entry.label));
+      list.appendChild(createElement('li', '', entry?.label || entry));
     }
     card.appendChild(list);
     container.appendChild(card);
@@ -197,8 +328,8 @@ function renderExecutive(result) {
 function renderDimensionSummary(statuses) {
   const summary = createElement('div', 'dimension-summary');
   const counts = {strong: 0, mixed: 0, weak: 0, unknown: 0};
-  for (const statusValue of Object.values(statuses || {})) {
-    if (Object.hasOwn(counts, statusValue)) counts[statusValue] += 1;
+  for (const value of Object.values(statuses || {})) {
+    if (Object.hasOwn(counts, value)) counts[value] += 1;
   }
   for (const key of ['strong', 'mixed', 'weak', 'unknown']) {
     summary.appendChild(createElement('span', `dimension-chip ${key}`, `${key} ${counts[key]}`));
@@ -239,13 +370,11 @@ function renderCandidateDetails(candidate, assessment) {
   const dimensions = createElement('div', 'detail-block');
   dimensions.appendChild(createElement('h5', '', '10개 현실평가 차원'));
   const dimensionList = createElement('dl', 'dimension-list');
-  const dimension_statuses = assessment.dimension_statuses || {};
-  for (const [dimension, dimensionStatus] of Object.entries(dimension_statuses)) {
+  for (const [dimension, dimensionStatus] of Object.entries(assessment.dimension_statuses || {})) {
     appendDefinition(dimensionList, dimension, dimensionStatus);
   }
   dimensions.appendChild(dimensionList);
   wrapper.appendChild(dimensions);
-
   wrapper.appendChild(renderStringListBlock('Material Unknowns', assessment.material_unknowns));
 
   const blockersBlock = createElement('div', 'detail-block');
@@ -264,7 +393,6 @@ function renderCandidateDetails(candidate, assessment) {
   after.append(createElement('h5', '', 'After'), createElement('p', '', candidate.workflow_after));
   workflow.append(before, after);
   wrapper.appendChild(workflow);
-
   wrapper.appendChild(renderValueChain(candidate.value_creation_chain));
   wrapper.appendChild(renderStringListBlock('핵심 의존성', candidate.critical_dependencies));
   wrapper.appendChild(renderStringListBlock('새로운 위험', candidate.new_risks));
@@ -276,8 +404,7 @@ function renderCandidateDetails(candidate, assessment) {
 function renderCandidates(result) {
   const grid = document.querySelector('#candidate-grid');
   grid.replaceChildren();
-  const assessments = Array.isArray(result.candidate_reality_assessments)
-    ? result.candidate_reality_assessments : [];
+  const assessments = Array.isArray(result.candidate_reality_assessments) ? result.candidate_reality_assessments : [];
   const candidates = Array.isArray(result.candidates) ? result.candidates : [];
   const candidatesById = new Map(candidates.map((candidate) => [candidate.candidate_id, candidate]));
   candidateSection.hidden = false;
@@ -288,10 +415,7 @@ function renderCandidates(result) {
     const card = createElement('article', `candidate-card verdict-${String(assessment.reality_verdict || '').toLowerCase()}`);
     const head = createElement('div', 'candidate-head');
     const titleBox = createElement('div', 'candidate-title-box');
-    titleBox.append(
-      createElement('span', 'family-label', assessment.family),
-      createElement('h3', '', assessment.name),
-    );
+    titleBox.append(createElement('span', 'family-label', assessment.family), createElement('h3', '', assessment.name));
     head.append(titleBox, createElement('span', 'verdict-badge', assessment.reality_verdict));
     card.append(head, createElement('p', 'candidate-concept', assessment.one_sentence_concept));
 
@@ -314,23 +438,19 @@ function renderCandidates(result) {
 function renderEvidence(result) {
   const list = document.querySelector('#evidence-list');
   list.replaceChildren();
-  const graph = result.evidence_graph || {};
-  const records = Array.isArray(graph.records) ? graph.records : [];
+  const records = Array.isArray(result.evidence_graph?.records) ? result.evidence_graph.records : [];
   evidenceSection.hidden = false;
-
   for (const record of records) {
     const card = createElement('article', 'evidence-card');
-    const direction = `${asText(record.supports_or_contradicts)} · Tier ${asText(record.confidence_tier)}`;
     card.append(
-      createElement('span', 'family-label', direction),
+      createElement('span', 'family-label', `${asText(record.supports_or_contradicts)} · Tier ${asText(record.confidence_tier)}`),
       createElement('h3', '', record.claim),
       createElement('p', '', `${asText(record.publisher)} · ${asText(record.publication_date)} · ${asText(record.geography)}`),
       createElement('p', 'muted', `claim_id: ${asText(record.claim_id)}`),
     );
-    const sourceUrl = record.source_url;
-    if (typeof sourceUrl === 'string' && /^https?:\/\//.test(sourceUrl)) {
+    if (typeof record.source_url === 'string' && /^https?:\/\//.test(record.source_url)) {
       const link = createElement('a', 'source-link', record.source_title || '출처 열기');
-      link.href = sourceUrl;
+      link.href = record.source_url;
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
       card.appendChild(link);
@@ -343,14 +463,10 @@ function renderEvidence(result) {
 function renderDetailedReport(result) {
   const list = document.querySelector('#detail-list');
   list.replaceChildren();
-  const detailed_analysis = result.state?.detailed_analysis || {};
   detailSection.hidden = false;
-  for (const [sectionName, section] of Object.entries(detailed_analysis)) {
+  for (const [sectionName, section] of Object.entries(result.state?.detailed_analysis || {})) {
     const card = createElement('article', 'detail-report-card');
-    card.append(
-      createElement('span', 'family-label', sectionName.replaceAll('_', ' ')),
-      createElement('p', '', section?.summary),
-    );
+    card.append(createElement('span', 'family-label', sectionName.replaceAll('_', ' ')), createElement('p', '', section?.summary));
     if (Array.isArray(section?.evidence_refs) && section.evidence_refs.length) {
       card.appendChild(renderStringListBlock('Evidence refs', section.evidence_refs));
     }
@@ -412,20 +528,103 @@ function downloadDocument(filename) {
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   hideOutput();
+  resetBridge();
   submitButton.disabled = true;
-  status.textContent = '아이디어를 조사하고 진화시키고 있습니다. 완료된 서버 검증 결과만 표시합니다…';
+  status.textContent = 'Bridge 세션과 Forge 검증 패키지를 만들고 있습니다…';
   try {
-    const payload = await postJson('/api/evolve', {idea: ideaInput.value});
-    renderEvolutionResult(payload);
+    const payload = await postJson('/api/bridge/forge-request', {idea: ideaInput.value});
+    currentBridgeSessionId = payload.bridge_session_id;
+    currentForgePackage = payload.package;
+    currentBridgeVersion = payload.package?.bridge_version || '';
+    bridgeSection.hidden = false;
+    setText('#bridge-session', `세션 ${currentBridgeSessionId}`);
+    renderBridgePackage('forge', currentForgePackage);
+    status.textContent = '1단계: Forge 프롬프트를 복사해 첫 ChatGPT Plus 대화에서 실행한 뒤 최종 JSON을 붙여넣으세요.';
   } catch (error) {
-    const code = error?.payload?.error || '';
-    if (code === 'provider_not_configured') {
-      status.textContent = '서버 AI Provider가 구성되지 않았습니다. API 키나 내부 설정은 브라우저에 노출하지 않습니다.';
-    } else {
-      status.textContent = error instanceof Error ? error.message : '진화 실행에 실패했습니다.';
-    }
+    status.textContent = error instanceof Error ? error.message : 'Bridge 세션 생성에 실패했습니다.';
   } finally {
     submitButton.disabled = false;
+  }
+});
+
+document.querySelector('#copy-forge-prompt').addEventListener('click', () => {
+  copyText(buildChatGPTPrompt(currentForgePackage), 'Forge 프롬프트를 복사했습니다. 새 ChatGPT Plus 대화에 붙여넣으세요.');
+});
+
+document.querySelector('#copy-forge-json').addEventListener('click', () => {
+  copyText(prettyJson(currentForgePackage), 'Forge package JSON을 복사했습니다.');
+});
+
+document.querySelector('#download-forge-json').addEventListener('click', () => {
+  downloadJson('ivm-forge-package.json', currentForgePackage);
+});
+
+document.querySelector('#copy-judge-prompt').addEventListener('click', () => {
+  copyText(buildChatGPTPrompt(currentJudgePackage), 'Judge 프롬프트를 복사했습니다. 반드시 별도의 새 ChatGPT 대화에 붙여넣으세요.');
+});
+
+document.querySelector('#copy-judge-json').addEventListener('click', () => {
+  copyText(prettyJson(currentJudgePackage), 'Judge package JSON을 복사했습니다.');
+});
+
+document.querySelector('#download-judge-json').addEventListener('click', () => {
+  downloadJson('ivm-judge-package.json', currentJudgePackage);
+});
+
+document.querySelector('#forge-result-file').addEventListener('change', async (event) => {
+  try {
+    await loadJsonFile(event.target.files?.[0], document.querySelector('#forge-result-input'));
+    status.textContent = 'Forge JSON 파일을 불러왔습니다. 검증 버튼을 누르세요.';
+  } catch (error) {
+    status.textContent = error instanceof Error ? error.message : '파일을 읽지 못했습니다.';
+  }
+});
+
+document.querySelector('#judge-result-file').addEventListener('change', async (event) => {
+  try {
+    await loadJsonFile(event.target.files?.[0], document.querySelector('#judge-result-input'));
+    status.textContent = 'Judge JSON 파일을 불러왔습니다. 검증 버튼을 누르세요.';
+  } catch (error) {
+    status.textContent = error instanceof Error ? error.message : '파일을 읽지 못했습니다.';
+  }
+});
+
+document.querySelector('#import-forge-result').addEventListener('click', async () => {
+  const button = document.querySelector('#import-forge-result');
+  button.disabled = true;
+  status.textContent = 'Forge 결과를 Evidence/Candidate Gate로 검증하고 있습니다…';
+  try {
+    const result = parseImportedJson(document.querySelector('#forge-result-input').value);
+    await postJson('/api/bridge/forge-import', makeBridgeEnvelope(result));
+    setText('#forge-state', '검증 완료 · 10개 후보');
+    const judge = await postJson('/api/bridge/judge-request', {bridge_session_id: currentBridgeSessionId});
+    currentJudgePackage = judge.package;
+    currentBridgeVersion = judge.package?.bridge_version || currentBridgeVersion;
+    judgeStep.hidden = false;
+    renderBridgePackage('judge', currentJudgePackage);
+    status.textContent = '2단계: Judge 프롬프트를 복사해 별도의 새 ChatGPT 대화에서 실행한 뒤 최종 JSON을 붙여넣으세요.';
+    judgeStep.scrollIntoView({behavior: 'smooth', block: 'start'});
+  } catch (error) {
+    status.textContent = error instanceof Error ? error.message : 'Forge 결과 검증에 실패했습니다.';
+  } finally {
+    button.disabled = false;
+  }
+});
+
+document.querySelector('#import-judge-result').addEventListener('click', async () => {
+  const button = document.querySelector('#import-judge-result');
+  button.disabled = true;
+  status.textContent = 'Judge 결과를 검증하고 deterministic Decision Engine을 실행하고 있습니다…';
+  try {
+    const result = parseImportedJson(document.querySelector('#judge-result-input').value);
+    const completed = await postJson('/api/bridge/judge-import', makeBridgeEnvelope(result));
+    setText('#judge-state', '검증 완료 · 공식 판단 생성');
+    renderEvolutionResult(completed);
+    decisionSection.scrollIntoView({behavior: 'smooth', block: 'start'});
+  } catch (error) {
+    status.textContent = error instanceof Error ? error.message : 'Judge 결과 검증에 실패했습니다.';
+  } finally {
+    button.disabled = false;
   }
 });
 
@@ -439,9 +638,9 @@ approveButton.addEventListener('click', async () => {
     status.textContent = '방향 승인이 완료되었습니다. spec.md · design.md · plan.md가 생성되었습니다.';
     document.querySelector('#approval-guidance').textContent = '승인 완료: 동일 runtime 재승인 시 같은 개발 패키지를 반환합니다.';
   } catch (error) {
-    const decision = error?.payload?.decision;
-    status.textContent = decision
-      ? `${decision} 상태는 개발 handoff가 차단됩니다.`
+    const blockedDecision = error?.payload?.decision;
+    status.textContent = blockedDecision
+      ? `${blockedDecision} 상태는 개발 handoff가 차단됩니다.`
       : (error instanceof Error ? error.message : '승인 처리에 실패했습니다.');
     approveButton.disabled = false;
   }
@@ -450,3 +649,5 @@ approveButton.addEventListener('click', async () => {
 document.querySelectorAll('[data-download]').forEach((button) => {
   button.addEventListener('click', () => downloadDocument(button.dataset.download));
 });
+
+refreshReadiness();

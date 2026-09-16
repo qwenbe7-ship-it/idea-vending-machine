@@ -42,20 +42,23 @@ class DeploymentReadinessTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(payload, {"status": "ok"})
 
-    def test_readyz_is_503_without_provider_configuration(self):
+    def test_readyz_is_200_for_bridge_without_api_configuration(self):
         server = self.start_server(environ={})
         status, payload = self.get_json(server, "/readyz")
-        self.assertEqual(status, 503)
-        self.assertEqual(
-            payload,
-            {"status": "not_ready", "reason": "provider_not_configured"},
-        )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["default_mode"], "chatgpt_plus_bridge")
+        self.assertEqual(payload["modes"]["chatgpt_plus_bridge"], "ready")
+        self.assertEqual(payload["modes"]["openai_api"], "not_configured")
 
-    def test_readyz_is_200_with_server_owned_provider_configuration(self):
+    def test_readyz_reports_api_mode_independently_when_configured(self):
         server = self.start_server(environ={"OPENAI_API_KEY": "test-key"})
         status, payload = self.get_json(server, "/readyz")
         self.assertEqual(status, 200)
-        self.assertEqual(payload, {"status": "ready", "provider": "configured"})
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["default_mode"], "chatgpt_plus_bridge")
+        self.assertEqual(payload["modes"]["chatgpt_plus_bridge"], "ready")
+        self.assertEqual(payload["modes"]["openai_api"], "configured")
 
     def test_server_address_defaults_to_localhost_8000(self):
         self.assertEqual(_server_address_from_environ({}), ("127.0.0.1", 8000))
