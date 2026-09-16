@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import unittest
 
 
@@ -85,11 +86,18 @@ class WebContractTests(unittest.TestCase):
 
     def test_bridge_browser_wraps_only_server_session_and_version_around_results(self):
         source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
-        self.assertIn("bridge_session_id: currentBridgeSessionId", source)
-        self.assertIn("bridge_version: currentBridgeVersion", source)
-        self.assertIn("result", source)
-        for forbidden in ("decision:", "confidence:", "human_decision:", "selected_concept_id:"):
-            self.assertNotIn(forbidden, source)
+        match = re.search(
+            r"function makeBridgeEnvelope\(result\) \{(?P<body>.*?)\n\}",
+            source,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match)
+        body = match.group("body")
+        self.assertIn("bridge_session_id: currentBridgeSessionId", body)
+        self.assertIn("bridge_version: currentBridgeVersion", body)
+        self.assertIn("result", body)
+        for forbidden in ("decision", "confidence", "human_decision", "selected_concept_id"):
+            self.assertNotIn(forbidden, body)
 
     def test_runtime_and_reality_evaluation_are_rendered_from_server_payload(self):
         source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
