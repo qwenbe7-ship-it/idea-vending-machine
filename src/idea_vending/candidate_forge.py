@@ -1,4 +1,4 @@
-"""Deterministic candidate admission contracts for Idea Vending Machine v0.3 PR C."""
+"""Deterministic candidate admission contracts for Idea Vending Machine v0.3."""
 
 from __future__ import annotations
 
@@ -15,7 +15,13 @@ CANDIDATE_FAMILIES = {
     "adjacent_innovation",
     "category_shift",
     "zero_based_reinvention",
-    "axion_candidate",
+    "axion_automation",
+    "prevention_shift_left",
+    "outcome_execution",
+    "workflow_infrastructure",
+    "data_decision_asset",
+    "buyer_revenue_inversion",
+    "compounding_asset",
 }
 VALUE_CHAIN_KEYS = {
     "current_constraint",
@@ -217,7 +223,7 @@ def create_candidate(
 def validate_candidate(candidate: dict[str, Any], graph: dict[str, Any]) -> None:
     """Validate one candidate without granting it scoring or decision authority."""
     if not isinstance(candidate, dict) or set(candidate) != CANDIDATE_KEYS:
-        raise ValueError("candidate keys do not match the PR C contract")
+        raise ValueError("candidate keys do not match the E2A contract")
     candidate_id = candidate["candidate_id"]
     if not isinstance(candidate_id, str) or not _CANDIDATE_ID_RE.fullmatch(candidate_id):
         raise ValueError("candidate_id must be a trusted candidate_<12hex> identifier")
@@ -225,17 +231,9 @@ def validate_candidate(candidate: dict[str, Any], graph: dict[str, Any]) -> None
         raise ValueError("invalid candidate family")
 
     for field in (
-        "name",
-        "one_sentence_concept",
-        "problem_reframe",
-        "primary_buyer",
-        "user",
-        "job_to_be_done",
-        "workflow_before",
-        "workflow_after",
-        "value_capture_model",
-        "automation_thesis",
-        "defensibility_thesis",
+        "name", "one_sentence_concept", "problem_reframe", "primary_buyer",
+        "user", "job_to_be_done", "workflow_before", "workflow_after",
+        "value_capture_model", "automation_thesis", "defensibility_thesis",
         "compounding_effect",
     ):
         _text(field, candidate[field])
@@ -273,7 +271,6 @@ def validate_candidate(candidate: dict[str, Any], graph: dict[str, Any]) -> None
 
 
 def validate_causal_value_chain(candidate: dict[str, Any]) -> None:
-    """Verify that every required link from constraint to value capture is explicit."""
     if not isinstance(candidate, dict):
         raise ValueError("candidate must be a dictionary")
     _normalize_value_chain(candidate.get("value_creation_chain"))
@@ -284,7 +281,6 @@ def _canonical_dimension_value(value: Any) -> str:
 
 
 def audit_candidate_diversity(candidates: list[dict[str, Any]]) -> dict[str, Any]:
-    """Detect candidate sets that collapse into cosmetic feature/name variants."""
     if not isinstance(candidates, list) or len(candidates) < 2:
         raise ValueError("candidates must contain at least two candidate objects")
     ids: list[str] = []
@@ -308,14 +304,12 @@ def audit_candidate_diversity(candidates: list[dict[str, Any]]) -> dict[str, Any
             != _canonical_dimension_value(right.get(dimension))
         ]
         count = len(different_dimensions)
-        pairwise.append(
-            {
-                "left_id": left["candidate_id"],
-                "right_id": right["candidate_id"],
-                "different_dimensions": different_dimensions,
-                "count": count,
-            }
-        )
+        pairwise.append({
+            "left_id": left["candidate_id"],
+            "right_id": right["candidate_id"],
+            "different_dimensions": different_dimensions,
+            "count": count,
+        })
         if count >= 3:
             qualifying_peers[left["candidate_id"]] += 1
             qualifying_peers[right["candidate_id"]] += 1
@@ -332,62 +326,36 @@ def audit_candidate_diversity(candidates: list[dict[str, Any]]) -> dict[str, Any
     }
 
 
-def audit_family_coverage(
-    candidates: list[dict[str, Any]],
-    non_applicable_families: dict[str, str] | None = None,
-) -> dict[str, Any]:
-    """Require every canonical candidate family or an explicit non-applicable reason."""
+def audit_family_coverage(candidates: list[dict[str, Any]]) -> dict[str, Any]:
+    """Require exactly one trusted draft family for each of the ten E2A families."""
     if not isinstance(candidates, list):
         raise ValueError("candidates must be a list")
-    generated: set[str] = set()
+    generated: list[str] = []
     for candidate in candidates:
         if not isinstance(candidate, dict) or candidate.get("family") not in CANDIDATE_FAMILIES:
             raise ValueError("each candidate must contain a canonical family")
-        generated.add(candidate["family"])
-
-    non_applicable = non_applicable_families or {}
-    if not isinstance(non_applicable, dict):
-        raise ValueError("non_applicable_families must be a dictionary")
-    normalized_non_applicable: dict[str, str] = {}
-    for family, reason in non_applicable.items():
-        if family not in CANDIDATE_FAMILIES:
-            raise ValueError("non-applicable family must be canonical")
-        normalized_non_applicable[family] = _text(
-            f"non_applicable_families.{family}", reason
-        )
-    overlap = sorted(generated & set(normalized_non_applicable))
-    if overlap:
-        raise ValueError(
-            f"families cannot be both generated and non-applicable: {', '.join(overlap)}"
-        )
-    missing = sorted(CANDIDATE_FAMILIES - generated - set(normalized_non_applicable))
+        generated.append(candidate["family"])
+    unique_generated = set(generated)
+    missing = sorted(CANDIDATE_FAMILIES - unique_generated)
+    duplicates = sorted(family for family in unique_generated if generated.count(family) > 1)
     return {
-        "family_ready": not missing,
-        "generated_families": sorted(generated),
-        "non_applicable_families": dict(sorted(normalized_non_applicable.items())),
+        "family_ready": len(candidates) == 10 and not missing and not duplicates,
+        "generated_families": sorted(unique_generated),
         "missing_families": missing,
+        "duplicate_families": duplicates,
     }
 
 
 def create_collision_research_request(
-    *,
-    candidate_id: str,
-    question: str,
-    reason: str,
-    materiality: str,
+    *, candidate_id: str, question: str, reason: str, materiality: str,
     suggested_category: str,
 ) -> dict[str, str]:
-    """Turn an unsupported decision-critical fact into a deterministic research request."""
     if not isinstance(candidate_id, str) or not _CANDIDATE_ID_RE.fullmatch(candidate_id):
         raise ValueError("candidate_id must be a trusted candidate_<12hex> identifier")
     if materiality not in COLLISION_MATERIALITIES:
-        raise ValueError(
-            f"materiality must be one of {sorted(COLLISION_MATERIALITIES)}"
-        )
+        raise ValueError(f"materiality must be one of {sorted(COLLISION_MATERIALITIES)}")
     if suggested_category not in COLLISION_CATEGORIES:
-        raise ValueError(
-            f"suggested_category must be one of {sorted(COLLISION_CATEGORIES)}"
-        )
+        raise ValueError(f"suggested_category must be one of {sorted(COLLISION_CATEGORIES)}")
     payload = {
         "candidate_id": candidate_id,
         "question": _text("question", question),
@@ -395,10 +363,7 @@ def create_collision_research_request(
         "materiality": materiality,
         "suggested_category": suggested_category,
     }
-    return {
-        "research_request_id": _stable_hash("collision", payload),
-        **payload,
-    }
+    return {"research_request_id": _stable_hash("collision", payload), **payload}
 
 
 def audit_candidate_set(
@@ -407,10 +372,8 @@ def audit_candidate_set(
     transformation_tests: list[dict[str, Any]],
     mechanism_transfers: list[dict[str, Any]],
     *,
-    non_applicable_families: dict[str, str] | None = None,
     original_remains_strong: bool = False,
 ) -> dict[str, bool]:
-    """Compose deterministic PR C gates without selecting or scoring a candidate."""
     from src.idea_vending.mechanism_transfer import validate_mechanism_transfer
     from src.idea_vending.reframing import audit_reframing_readiness
 
@@ -436,12 +399,10 @@ def audit_candidate_set(
 
     reframe_ready = False
     try:
-        reframe_ready = bool(
-            audit_reframing_readiness(
-                transformation_tests,
-                original_remains_strong=original_remains_strong,
-            )["generation_ready"]
-        )
+        reframe_ready = bool(audit_reframing_readiness(
+            transformation_tests,
+            original_remains_strong=original_remains_strong,
+        )["generation_ready"])
     except (TypeError, ValueError, KeyError):
         reframe_ready = False
 
@@ -482,11 +443,7 @@ def audit_candidate_set(
 
     family_ready = False
     try:
-        family_ready = bool(
-            audit_family_coverage(
-                candidates, non_applicable_families=non_applicable_families
-            )["family_ready"]
-        )
+        family_ready = bool(audit_family_coverage(candidates)["family_ready"])
     except (TypeError, ValueError, KeyError):
         family_ready = False
 
