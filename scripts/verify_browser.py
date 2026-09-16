@@ -203,8 +203,9 @@ def scenario_wrong_session(page: Page, base_url: str) -> None:
 def scenario_xss(page: Page, base_url: str) -> None:
     payload = '<img src=x onerror="window.__ivmBridgeXss=1">'
     idea = f"XSS {IDEA_BASE} {payload}"
-    start_bridge(page, base_url, idea)
-    expect(page.locator("#forge-package")).to_contain_text(payload)
+    forge_package = start_bridge(page, base_url, idea)
+    if forge_package.get("raw_idea") != idea:
+        fail("untrusted bridge idea was not preserved after safe JSON decoding")
     if page.locator('img[src="x"]').count() != 0:
         fail("untrusted bridge idea created an executable image element")
     executed = page.evaluate("typeof window.__ivmBridgeXss === 'undefined' ? null : window.__ivmBridgeXss")
