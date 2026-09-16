@@ -46,13 +46,53 @@ def _validated_base_url(base_url: str) -> str:
     return normalized
 
 
+def _readiness_modes(ready_payload: dict[str, Any]) -> tuple[bool, bool]:
+    """Validate either the v0.3 Bridge contract or the v0.4 autonomous contract."""
+    modes = ready_payload.get("modes")
+    if not isinstance(modes, dict):
+        raise ValueError("deployment_readiness_unexpected")
+
+    legacy_keys = {"chatgpt_plus_bridge", "openai_api"}
+    autonomous_keys = {"autonomous_due_diligence", "chatgpt_plus_bridge", "openai_api"}
+    mode_keys = set(modes)
+
+    if modes.get("chatgpt_plus_bridge") != "ready":
+        raise ValueError("deployment_readiness_unexpected")
+    api_mode = modes.get("openai_api")
+    if api_mode not in {"configured", "not_configured"}:
+        raise ValueError("deployment_readiness_unexpected")
+    api_configured = api_mode == "configured"
+
+    if mode_keys == legacy_keys:
+        if ready_payload.get("default_mode") != "chatgpt_plus_bridge":
+            raise ValueError("deployment_readiness_unexpected")
+        return api_configured, False
+
+    if mode_keys != autonomous_keys:
+        raise ValueError("deployment_readiness_unexpected")
+
+    autonomous_mode = modes.get("autonomous_due_diligence")
+    if autonomous_mode not in {"ready", "not_configured"}:
+        raise ValueError("deployment_readiness_unexpected")
+    autonomous_ready = autonomous_mode == "ready"
+
+    if autonomous_ready:
+        if not api_configured or ready_payload.get("default_mode") != "autonomous_due_diligence":
+            raise ValueError("deployment_readiness_unexpected")
+    else:
+        if api_configured or ready_payload.get("default_mode") != "chatgpt_plus_bridge":
+            raise ValueError("deployment_readiness_unexpected")
+
+    return api_configured, autonomous_ready
+
+
 def check_deployment(
     base_url: str,
     *,
     opener: Callable[[str, float], tuple[int, dict[str, Any]]] = _request_json,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> dict[str, bool]:
-    """Check public liveness and Bridge-first readiness without provider calls."""
+    """Check public liveness and version-aware readiness without provider calls."""
     base = _validated_base_url(base_url)
     if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or timeout <= 0:
         raise ValueError("timeout_must_be_positive")
@@ -66,21 +106,13 @@ def check_deployment(
         raise ValueError("deployment_readiness_unexpected")
     if ready_payload.get("status") != "ready":
         raise ValueError("deployment_readiness_unexpected")
-    if ready_payload.get("default_mode") != "chatgpt_plus_bridge":
-        raise ValueError("deployment_readiness_unexpected")
 
-    modes = ready_payload.get("modes")
-    if not isinstance(modes, dict) or set(modes) != {"chatgpt_plus_bridge", "openai_api"}:
-        raise ValueError("deployment_readiness_unexpected")
-    if modes.get("chatgpt_plus_bridge") != "ready":
-        raise ValueError("deployment_readiness_unexpected")
-    if modes.get("openai_api") not in {"configured", "not_configured"}:
-        raise ValueError("deployment_readiness_unexpected")
-
+    api_configured, autonomous_ready = _readiness_modes(ready_payload)
     return {
         "health_ok": True,
         "ready": True,
-        "api_configured": modes["openai_api"] == "configured",
+        "api_configured": api_configured,
+        "autonomous_ready": autonomous_ready,
     }
 
 
@@ -97,12 +129,17 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print("PASS: deployment health")
-    print("PASS: ChatGPT Plus Bridge readiness")
-    if result["api_configured"]:
-        print("PASS: optional OpenAI API mode configured")
+    print("PASS: ChatGPT Plus Bridge fallback readiness")
+    if result["autonomous_ready"]:
+        print("PASS: autonomous due diligence readiness")
+        print("PASS: server-owned OpenAI API mode configured")
+        print("DEPLOYMENT AUTONOMOUS READY WITH EVIDENCE")
     else:
-        print("INFO: optional OpenAI API mode not configured")
-    print("DEPLOYMENT BRIDGE READY WITH EVIDENCE")
+        if result["api_configured"]:
+            print("INFO: legacy API mode configured; autonomous v0.4 mode not active")
+        else:
+            print("INFO: autonomous provider not configured; Bridge fallback remains ready")
+        print("DEPLOYMENT FALLBACK READY WITH EVIDENCE")
     return 0
 
 

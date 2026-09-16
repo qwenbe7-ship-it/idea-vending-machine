@@ -1,4 +1,4 @@
-"""Deterministic real-Chromium verification for ChatGPT Plus Bridge Mode."""
+"""Deterministic real-Chromium verification for autonomous v0.4 and Bridge fallback."""
 
 from __future__ import annotations
 
@@ -16,10 +16,12 @@ try:
 except ImportError as exc:
     raise SystemExit("FAIL: Playwright test dependency is required") from exc
 
-from app import create_server
+from app import create_server as create_bridge_server
 from src.idea_vending.bridge_contract import BRIDGE_VERSION
 from tests.test_bridge_forge import valid_forge_result
 from tests.test_evolution_runtime import FakeEvaluationProvider
+from tests.test_evolve_api import completed_result
+from v04_app import create_server as create_autonomous_server
 
 SCENARIOS = (
     "BRIDGE_SIMPLE_UX",
@@ -36,6 +38,11 @@ SCENARIOS = (
     "BRIDGE_REPLAY",
     "BRIDGE_XSS",
     "BRIDGE_READY_WITHOUT_API",
+    "AUTO_ONE_CLICK_COMPLETE",
+    "AUTO_SUMMARY_TRUSTED",
+    "AUTO_GO_APPROVAL",
+    "AUTO_HOLD_BLOCKED",
+    "AUTO_PROVIDER_NOT_CONFIGURED_FALLBACK",
 )
 
 IDEA_BASE = "고객 문의 반복업무를 예방 자동화하고 증거로 검증하는 운영 시스템"
@@ -45,12 +52,30 @@ def fail(message: str) -> None:
     raise AssertionError(message)
 
 
-def start_server():
-    server = create_server("127.0.0.1", 0, environ={})
+def _serve(server):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     base_url = f"http://127.0.0.1:{server.server_address[1]}"
     return server, thread, base_url
+
+
+def start_bridge_server():
+    return _serve(create_bridge_server("127.0.0.1", 0, environ={}))
+
+
+def start_autonomous_server(scenario: str | None, *, poison_summary: bool = False):
+    runner = None
+    if scenario is not None:
+        def runner(idea: str) -> dict:
+            result = completed_result(idea, scenario)
+            if poison_summary:
+                result["automation_summary"] = {
+                    "mode": "untrusted",
+                    "candidate_count": 999,
+                    "decision": "KILL",
+                }
+            return result
+    return _serve(create_autonomous_server("127.0.0.1", 0, evolve_runner=runner, environ={}))
 
 
 def stop_server(server, thread: threading.Thread) -> None:
@@ -133,7 +158,6 @@ def scenario_go_round_trip(page: Page, base_url: str) -> None:
     expect(page.locator("#judge-step")).to_contain_text("별도의 새 ChatGPT 대화")
     print("PASS: BRIDGE_JUDGE_EXPORT")
 
-    # Same Forge result replay must remain idempotent even after Judge was requested.
     page.locator("#import-forge-result").click()
     expect(page.locator("#judge-step")).to_be_visible(timeout=20000)
     expect(page.locator("#status")).to_contain_text("2/2")
@@ -243,32 +267,125 @@ def scenario_ready_without_api(page: Page, base_url: str) -> None:
     print("PASS: BRIDGE_READY_WITHOUT_API")
 
 
-def main() -> None:
+def scenario_auto_go(page: Page, base_url: str) -> None:
+    page.goto(base_url, wait_until="domcontentloaded")
+    expect(page.get_by_role("button", name="자동 분석 시작")).to_be_visible(timeout=20000)
+    expect(page.locator("#autonomous-workflow")).to_be_visible()
+    expect(page.locator("#autonomous-workflow")).to_contain_text("시장 조사")
+    expect(page.locator("#autonomous-workflow")).to_contain_text("반증 탐색")
+    expect(page.locator("#autonomous-workflow")).to_contain_text("10개 대안")
+    expect(page.locator("#autonomous-workflow")).to_contain_text("독립 심사")
+    expect(page.locator("#autonomous-workflow")).to_contain_text("최종 결정")
+    expect(page.locator("#bridge-workflow")).to_be_hidden()
+
+    page.locator("#idea").fill(f"AUTO GO {IDEA_BASE}")
+    page.get_by_role("button", name="자동 분석 시작").click()
+    expect(page.locator("#executive-decision")).to_be_visible(timeout=20000)
+    expect(page.locator("#candidate-grid .candidate-card")).to_have_count(10)
+    expect(page.locator("#automation-summary")).to_be_visible()
+    expect(page.locator("#automation-candidate-count")).to_have_text("10")
+    expect(page.locator("#automation-decision")).to_have_text("GO")
+    expect(page.locator("#bridge-workflow")).to_be_hidden()
+    print("PASS: AUTO_ONE_CLICK_COMPLETE")
+
+    evidence_text = page.locator("#automation-evidence-count").inner_text().strip()
+    critique_text = page.locator("#automation-critique-count").inner_text().strip()
+    if not evidence_text.isdigit() or int(evidence_text) <= 0:
+        fail(f"autonomous summary did not report trusted evidence count: {evidence_text!r}")
+    if critique_text != "11":
+        fail(f"autonomous summary did not report baseline + 10 independent critiques: {critique_text!r}")
+    if page.locator("#automation-candidate-count").inner_text().strip() == "999":
+        fail("provider-supplied automation summary was trusted")
+    print("PASS: AUTO_SUMMARY_TRUSTED")
+
+    expect(page.locator("#approve-direction")).to_be_enabled()
+    page.locator("#approve-direction").click()
+    expect(page.locator("#package")).to_be_visible(timeout=20000)
+    for selector in ("#spec-preview", "#design-preview", "#plan-preview"):
+        expect(page.locator(selector)).not_to_be_empty()
+    print("PASS: AUTO_GO_APPROVAL")
+
+
+def scenario_auto_hold(page: Page, base_url: str) -> None:
+    page.goto(base_url, wait_until="domcontentloaded")
+    page.locator("#idea").fill(f"AUTO HOLD {IDEA_BASE}")
+    page.get_by_role("button", name="자동 분석 시작").click()
+    expect(page.locator("#executive-decision")).to_be_visible(timeout=20000)
+    expect(page.locator("#decision-value")).to_have_text("HOLD")
+    expect(page.locator("#candidate-grid .candidate-card")).to_have_count(10)
+    expect(page.locator("#approve-direction")).to_be_disabled()
+    expect(page.locator("#package")).to_be_hidden()
+    print("PASS: AUTO_HOLD_BLOCKED")
+
+
+def scenario_auto_unconfigured_fallback(page: Page, base_url: str) -> None:
+    page.goto(base_url, wait_until="domcontentloaded")
+    expect(page.get_by_role("button", name="자동 분석 시작")).to_be_visible(timeout=20000)
+    page.locator("#idea").fill(f"AUTO FALLBACK {IDEA_BASE}")
+    page.get_by_role("button", name="자동 분석 시작").click()
+    expect(page.locator("#status")).to_contain_text(
+        "자동 분석 엔진이 아직 설정되지 않았습니다.", timeout=20000
+    )
+    fallback_open = page.locator("#bridge-fallback").evaluate("node => node.open")
+    if fallback_open is not True:
+        fail("Bridge fallback disclosure was not opened after missing autonomous provider")
+    page.locator("#enable-bridge-fallback").click()
+    expect(page.locator("#evolve-submit")).to_have_attribute("aria-label", "ChatGPT Plus로 분석")
+    page.locator("#evolve-submit").click()
+    expect(page.locator("#bridge-workflow")).to_be_visible(timeout=20000)
+    print("PASS: AUTO_PROVIDER_NOT_CONFIGURED_FALLBACK")
+
+
+def run_bridge_suite(browser) -> None:
     server = thread = None
     try:
-        server, thread, base_url = start_server()
+        server, thread, base_url = start_bridge_server()
+        context = browser.new_context()
+        context.grant_permissions(["clipboard-read", "clipboard-write"], origin=base_url)
+        page = context.new_page()
+        scenario_go_round_trip(page, base_url)
+        scenario_modify(page, base_url)
+        scenario_hold(page, base_url)
+        scenario_kill(page, base_url)
+        scenario_malformed_import(page, base_url)
+        scenario_wrong_session(page, base_url)
+        scenario_xss(page, base_url)
+        scenario_ready_without_api(page, base_url)
+        context.close()
+    finally:
+        if server is not None and thread is not None:
+            stop_server(server, thread)
+
+
+def run_autonomous_suite(browser) -> None:
+    for scenario, callback, poison_summary in (
+        ("go", scenario_auto_go, True),
+        ("hold", scenario_auto_hold, False),
+        (None, scenario_auto_unconfigured_fallback, False),
+    ):
+        server = thread = None
+        try:
+            server, thread, base_url = start_autonomous_server(scenario, poison_summary=poison_summary)
+            context = browser.new_context()
+            page = context.new_page()
+            callback(page, base_url)
+            context.close()
+        finally:
+            if server is not None and thread is not None:
+                stop_server(server, thread)
+
+
+def main() -> None:
+    try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
             try:
-                context = browser.new_context()
-                context.grant_permissions(["clipboard-read", "clipboard-write"], origin=base_url)
-                page = context.new_page()
-                scenario_go_round_trip(page, base_url)
-                scenario_modify(page, base_url)
-                scenario_hold(page, base_url)
-                scenario_kill(page, base_url)
-                scenario_malformed_import(page, base_url)
-                scenario_wrong_session(page, base_url)
-                scenario_xss(page, base_url)
-                scenario_ready_without_api(page, base_url)
-                context.close()
+                run_bridge_suite(browser)
+                run_autonomous_suite(browser)
             finally:
                 browser.close()
     except AssertionError as exc:
         raise SystemExit(f"FAIL: {exc}") from exc
-    finally:
-        if server is not None and thread is not None:
-            stop_server(server, thread)
     print("BROWSER GREEN WITH EVIDENCE")
 
 
