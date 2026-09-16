@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
@@ -18,7 +19,11 @@ def validate_bridge_json(value: Any, *, _depth: int = 0) -> None:
     """Bound untrusted JSON complexity before any domain-level validation."""
     if _depth > MAX_BRIDGE_JSON_DEPTH:
         raise ValueError("bridge_json_too_deep")
-    if value is None or isinstance(value, (bool, int, float)):
+    if value is None or isinstance(value, bool) or isinstance(value, int):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("bridge_number_invalid")
         return
     if isinstance(value, str):
         if len(value) > MAX_BRIDGE_STRING_CHARS:
