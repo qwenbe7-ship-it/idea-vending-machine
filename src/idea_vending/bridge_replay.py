@@ -63,6 +63,33 @@ def _remap_claim_refs(value: Any, mapping: dict[str, str]) -> Any:
     return result
 
 
+def _remap_judge_claim_refs(value: Any, mapping: dict[str, str]) -> Any:
+    """Map Judge-only bc_ references while preserving already-trusted claim_ references."""
+    if isinstance(value, list):
+        return [_remap_judge_claim_refs(item, mapping) for item in value]
+    if not isinstance(value, dict):
+        return deepcopy(value)
+    result: dict[str, Any] = {}
+    for key, item in value.items():
+        if key in _CLAIM_REFERENCE_KEYS:
+            if not isinstance(item, list):
+                raise ValueError("bridge_claim_reference_list_invalid")
+            mapped: list[str] = []
+            for ref in item:
+                if not isinstance(ref, str):
+                    raise ValueError("bridge_claim_reference_unknown")
+                if ref.startswith("bc_"):
+                    if ref not in mapping:
+                        raise ValueError("bridge_claim_reference_unknown")
+                    mapped.append(mapping[ref])
+                else:
+                    mapped.append(ref)
+            result[key] = mapped
+        else:
+            result[key] = _remap_judge_claim_refs(item, mapping)
+    return result
+
+
 class BridgeResearchReplay:
     def __init__(
         self,
@@ -71,11 +98,12 @@ class BridgeResearchReplay:
         session_id: str,
         retrieved_date_provider: Callable[[], str],
     ) -> None:
-        self._result = forge_result
+        self._result = deepcopy(forge_result)
         self._session_id = session_id
         self._retrieved_date_provider = retrieved_date_provider
         self.claim_ref_map: dict[str, str] = {}
         self._candidate_family_order: list[str] = []
+        self._additional_collision_evidence: list[dict[str, Any]] = []
         self.last_run_metadata: dict[str, Any] | None = None
         self._sequence = 0
 
@@ -85,6 +113,11 @@ class BridgeResearchReplay:
         if len(families) != len(set(families)):
             raise ValueError("bridge_candidate_family_duplicate")
         self._candidate_family_order = list(families)
+
+    def set_additional_collision_evidence(self, drafts: list[dict[str, Any]]) -> None:
+        if not isinstance(drafts, list):
+            raise ValueError("bridge_additional_evidence_invalid")
+        self._additional_collision_evidence = deepcopy(drafts)
 
     def _normalize_record(
         self,
@@ -162,10 +195,17 @@ class BridgeResearchReplay:
     def research(self, request: dict[str, Any]) -> dict[str, Any]:
         pass_type = request.get("pass_type")
         if pass_type == "landscape":
+            # A finalization replay begins with a fresh landscape pass. Reset only
+            # transient ID mappings so the same trusted Forge artifact can be replayed.
+            self.claim_ref_map = {}
+            self._candidate_family_order = []
             drafts = self._result.get("landscape_research")
             candidate_ids: list[str] = []
         elif pass_type == "collision":
-            drafts = self._result.get("collision_research")
+            base_drafts = self._result.get("collision_research")
+            if not isinstance(base_drafts, list):
+                raise ValueError("bridge_research_records_missing")
+            drafts = [*deepcopy(base_drafts), *deepcopy(self._additional_collision_evidence)]
             candidate_ids = list(request.get("candidate_ids", []))
         else:
             raise ValueError("bridge_research_pass_invalid")
@@ -192,7 +232,7 @@ class BridgeResearchReplay:
 
 class BridgeIdeationReplay:
     def __init__(self, forge_result: dict[str, Any], research_replay: BridgeResearchReplay) -> None:
-        self._result = forge_result
+        self._result = deepcopy(forge_result)
         self._research = research_replay
         self.last_run_metadata: dict[str, Any] | None = None
         self._sequence = 0
@@ -225,5 +265,32 @@ class BridgeIdeationReplay:
             "operation": operation,
             "usage": {},
             "source_count": None,
+        }
+        return remapped
+
+
+class BridgeEvaluationReplay:
+    """Expose imported Judge critiques as one provider-neutral evaluation call."""
+
+    def __init__(self, judge_result: dict[str, Any], research_replay: BridgeResearchReplay) -> None:
+        self._result = deepcopy(judge_result)
+        self._research = research_replay
+        self.last_run_metadata: dict[str, Any] | None = None
+
+    def evaluate(self, request: dict[str, Any]) -> dict[str, Any]:
+        critiques = self._result.get("critiques")
+        if not isinstance(critiques, list):
+            raise ValueError("bridge_judge_critiques_invalid")
+        remapped = _remap_judge_claim_refs(
+            {"critiques": critiques},
+            self._research.claim_ref_map,
+        )
+        self.last_run_metadata = {
+            "provider": "chatgpt_plus_bridge",
+            "provider_response_id": "bridge_judge_import",
+            "model": "user_chatgpt_plus_fresh_conversation",
+            "operation": "independent_evaluation",
+            "usage": {},
+            "source_count": len(self._result.get("additional_evidence", [])),
         }
         return remapped
