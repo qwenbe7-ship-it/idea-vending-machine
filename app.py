@@ -1,4 +1,4 @@
-"""Minimal HTTP server for Idea Vending Machine v0.1."""
+"""Minimal HTTP server for Idea Vending Machine."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from src.idea_vending.analyzer import analyze_idea
+from src.idea_vending.package_generator import generate_development_package
 
 ROOT = Path(__file__).resolve().parent
 WEB_ROOT = ROOT / "web"
@@ -18,10 +19,11 @@ _STATIC_FILES = {
     "/app.js": ("app.js", "application/javascript; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
 }
+_API_PATHS = {"/api/analyze", "/api/package"}
 
 
 class IdeaVendingHandler(BaseHTTPRequestHandler):
-    server_version = "IdeaVendingMachine/0.1"
+    server_version = "IdeaVendingMachine/0.2"
 
     def log_message(self, format: str, *args: Any) -> None:
         return
@@ -46,6 +48,33 @@ class IdeaVendingHandler(BaseHTTPRequestHandler):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self._send_bytes(status, body, "application/json; charset=utf-8")
 
+    def _read_idea(self) -> str | None:
+        content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
+            self._send_json(415, {"error": "content_type_must_be_application_json"})
+            return None
+
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self._send_json(400, {"error": "invalid_content_length"})
+            return None
+
+        if content_length <= 0 or content_length > MAX_BODY_BYTES:
+            self._send_json(413, {"error": "request_too_large_or_empty"})
+            return None
+
+        try:
+            payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self._send_json(400, {"error": "invalid_json"})
+            return None
+
+        if not isinstance(payload, dict):
+            self._send_json(400, {"error": "json_object_required"})
+            return None
+        return payload.get("idea", "")
+
     def do_GET(self) -> None:
         static = _STATIC_FILES.get(self.path)
         if not static:
@@ -56,42 +85,26 @@ class IdeaVendingHandler(BaseHTTPRequestHandler):
         self._send_bytes(200, body, content_type)
 
     def do_POST(self) -> None:
-        if self.path != "/api/analyze":
+        if self.path not in _API_PATHS:
             self._send_json(404, {"error": "not_found"})
             return
 
-        content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
-        if content_type != "application/json":
-            self._send_json(415, {"error": "content_type_must_be_application_json"})
+        idea = self._read_idea()
+        if idea is None:
             return
 
         try:
-            content_length = int(self.headers.get("Content-Length", "0"))
-        except ValueError:
-            self._send_json(400, {"error": "invalid_content_length"})
-            return
-
-        if content_length <= 0 or content_length > MAX_BODY_BYTES:
-            self._send_json(413, {"error": "request_too_large_or_empty"})
-            return
-
-        try:
-            payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            self._send_json(400, {"error": "invalid_json"})
-            return
-
-        if not isinstance(payload, dict):
-            self._send_json(400, {"error": "json_object_required"})
-            return
-
-        try:
-            result = analyze_idea(payload.get("idea", ""))
+            analysis = analyze_idea(idea)
         except ValueError as exc:
             self._send_json(400, {"error": str(exc)})
             return
 
-        self._send_json(200, result)
+        if self.path == "/api/analyze":
+            self._send_json(200, analysis)
+            return
+
+        documents = generate_development_package(idea, analysis)
+        self._send_json(200, {"analysis": analysis, "documents": documents})
 
 
 def create_server(host: str = "127.0.0.1", port: int = 8000) -> ThreadingHTTPServer:
