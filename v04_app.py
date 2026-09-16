@@ -19,6 +19,9 @@ from src.idea_vending.evolution_runtime import run_evolution
 from src.idea_vending.openai_provider import OpenAIProviderConfig, OpenAIResponsesProvider
 from src.idea_vending.provider_transport import ResponsesTransport
 
+AUTONOMOUS_UI_SCRIPT = legacy_app.ROOT / "web/v04.js"
+_AUTONOMOUS_SCRIPT_TAG = '  <script src="/v04.js" defer></script>\n'
+
 
 def _build_autonomous_runner(environ: Mapping[str, str]) -> Callable[[str], dict[str, Any]]:
     """Build three isolated server-owned provider roles from trusted config."""
@@ -50,6 +53,18 @@ class AutonomousIdeaVendingHandler(legacy_app.IdeaVendingHandler):
     server_version = "IdeaVendingMachine/0.4"
 
     def do_GET(self) -> None:
+        if self.path == "/v04.js":
+            body = AUTONOMOUS_UI_SCRIPT.read_bytes()
+            self._send_bytes(200, body, "application/javascript; charset=utf-8")
+            return
+
+        if self.path == "/":
+            html = (legacy_app.WEB_ROOT / "index.html").read_text(encoding="utf-8")
+            if "/v04.js" not in html:
+                html = html.replace("</body>", f"{_AUTONOMOUS_SCRIPT_TAG}</body>", 1)
+            self._send_bytes(200, html.encode("utf-8"), "text/html; charset=utf-8")
+            return
+
         if self.path != "/readyz":
             super().do_GET()
             return
