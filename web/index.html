@@ -3,56 +3,112 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>아이디어 자판기</title>
+  <title>아이디어 자판기 — Executive Innovation Due Diligence</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <main class="shell">
     <section class="hero" aria-labelledby="title">
-      <p class="eyebrow">IDEA → SPEC → PLAN</p>
+      <p class="eyebrow">IDEA → EVIDENCE → EVOLUTION → DECISION</p>
       <h1 id="title">아이디어 자판기</h1>
-      <p class="lead">막연한 아이디어를 바로 코딩하지 않고, 먼저 개발 가능한 명세와 검증 기준으로 바꿉니다.</p>
+      <p class="lead">처음 떠올린 아이디어를 바로 만들지 않습니다. 시장·반대 근거·숨은 전제를 확인하고 10개의 대안을 현실평가한 뒤, 개발할 방향을 결정합니다.</p>
+      <p class="principle">Don't build your first idea. Build the idea it should become.</p>
 
       <form id="idea-form" class="idea-form">
-        <label for="idea">무엇을 만들고 싶나요?</label>
+        <label for="idea">검증하고 진화시킬 아이디어를 적어주세요.</label>
         <textarea id="idea" name="idea" minlength="10" maxlength="4000" required
           placeholder="예: 부동산 계약서를 올리면 위험조항을 찾아주는 프로그램"></textarea>
-        <button id="submit" type="submit">아이디어 넣기</button>
+        <button id="evolve-submit" type="submit">아이디어 진화시키기</button>
       </form>
       <p id="status" class="status" role="status" aria-live="polite"></p>
     </section>
 
-    <section id="result" class="result" hidden aria-labelledby="result-title">
-      <div class="result-head">
+    <section id="runtime-progress" class="panel" hidden aria-labelledby="runtime-title">
+      <div class="section-heading">
         <div>
-          <p class="eyebrow">AGENT MD ANALYSIS</p>
-          <h2 id="result-title">개발 준비 결과</h2>
+          <p class="eyebrow">VERIFIED PROCESS</p>
+          <h2 id="runtime-title">검증 진행 기록</h2>
         </div>
-        <div class="scores">
-          <span id="automation" class="score"></span>
-          <span id="feasibility" class="score"></span>
+        <span id="runtime-state" class="badge"></span>
+      </div>
+      <ol id="runtime-events" class="timeline"></ol>
+      <p id="runtime-failure" class="warning" hidden></p>
+    </section>
+
+    <section id="executive-decision" class="panel decision-panel" hidden aria-labelledby="decision-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">EXECUTIVE DECISION</p>
+          <h2 id="decision-title">대표이사 판단</h2>
+        </div>
+        <div class="decision-badges">
+          <span id="decision-value" class="decision-badge"></span>
+          <span id="confidence-value" class="badge"></span>
         </div>
       </div>
 
-      <article><h3>문제</h3><p id="problem"></p></article>
-      <article><h3>예상 고객</h3><p id="customer"></p></article>
-      <article><h3>핵심 위험</h3><ul id="risks"></ul></article>
-      <article><h3>MVP 범위</h3><ul id="mvp"></ul></article>
-      <article><h3>Acceptance Criteria</h3><ol id="criteria"></ol></article>
+      <p id="decision-thesis" class="thesis"></p>
+      <div class="executive-grid">
+        <article class="metric-card"><h3>왜 지금인가</h3><p id="why-now"></p></article>
+        <article class="metric-card"><h3>아이디어 변화</h3><p id="evolution-delta"></p></article>
+        <article class="metric-card"><h3>핵심 고객</h3><p id="best-customer"></p></article>
+        <article class="metric-card"><h3>사업 가치</h3><p id="business-value"></p></article>
+      </div>
 
-      <div class="package-action">
-        <button id="generate-package" type="button">개발 패키지 생성</button>
-        <p>검증된 분석을 바탕으로 spec.md · design.md · plan.md를 만듭니다.</p>
+      <article>
+        <h3>시장 스냅샷</h3>
+        <div id="market-snapshot" class="market-grid"></div>
+      </article>
+      <div class="two-column">
+        <article><h3>진행 근거</h3><ul id="reasons-for"></ul></article>
+        <article><h3>반대 근거</h3><ul id="reasons-against"></ul></article>
+      </div>
+      <article><h3>아직 모르는 것</h3><ul id="critical-unknowns"></ul></article>
+      <article class="validation-card">
+        <h3>가장 싼 다음 검증</h3>
+        <dl id="next-validation"></dl>
+      </article>
+
+      <div class="approval-box">
+        <button id="approve-direction" type="button" disabled>이 방향 승인</button>
+        <p id="approval-guidance">검증이 끝난 GO 또는 MODIFY 결과만 개발 패키지로 넘길 수 있습니다.</p>
       </div>
     </section>
 
-    <section id="package" class="result package" hidden aria-labelledby="package-title">
-      <div class="result-head">
+    <section id="candidate-section" class="panel" hidden aria-labelledby="candidate-title">
+      <div class="section-heading">
         <div>
-          <p class="eyebrow">DEVELOPMENT PACKAGE</p>
-          <h2 id="package-title">코딩 에이전트용 개발 패키지</h2>
+          <p class="eyebrow">10-CANDIDATE REALITY EVALUATION</p>
+          <h2 id="candidate-title">10개 사업 후보 현실평가</h2>
+        </div>
+        <span id="candidate-count" class="badge"></span>
+      </div>
+      <p class="section-copy">탈락한 후보도 숨기지 않습니다. 무엇을 검토했고 왜 진행·수정·보류·기각했는지 모두 남깁니다.</p>
+      <div id="candidate-grid" class="candidate-grid"></div>
+    </section>
+
+    <section id="evidence-report" class="panel" hidden aria-labelledby="evidence-title">
+      <details>
+        <summary><span><strong id="evidence-title">Evidence Graph</strong> — 판단에 사용된 근거 보기</span></summary>
+        <div id="evidence-list" class="evidence-list"></div>
+      </details>
+    </section>
+
+    <section id="detailed-report" class="panel" hidden aria-labelledby="detail-title">
+      <details>
+        <summary><span><strong id="detail-title">상세 전략 보고서</strong> — 20개 분석 섹션 보기</span></summary>
+        <div id="detail-list" class="detail-list"></div>
+      </details>
+    </section>
+
+    <section id="package" class="panel package" hidden aria-labelledby="package-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">APPROVED DEVELOPMENT PACKAGE</p>
+          <h2 id="package-title">승인된 개발 패키지</h2>
         </div>
       </div>
+      <p class="section-copy">사람의 명시적 승인까지 통과한 방향만 spec.md · design.md · plan.md로 변환합니다.</p>
 
       <article class="document-card">
         <div class="document-head"><h3>spec.md</h3><button type="button" data-download="spec.md">다운로드</button></div>
