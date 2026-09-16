@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 from copy import deepcopy
+from itertools import combinations
 from typing import Any
 
 from src.idea_vending.reframing import TRANSFORMATIONS
@@ -23,6 +24,25 @@ VALUE_CHAIN_KEYS = {
     "operational_or_economic_effect",
     "buyer_value",
     "value_capture",
+}
+DIVERSITY_DIMENSIONS = (
+    "primary_buyer",
+    "problem_reframe",
+    "workflow_after",
+    "value_creation_chain",
+    "value_capture_model",
+    "transformations_used",
+    "mechanism_transfer_ids",
+)
+COLLISION_MATERIALITIES = {"minor", "material"}
+COLLISION_CATEGORIES = {
+    "prior_art",
+    "competitors",
+    "buyer_evidence",
+    "pricing",
+    "regulation",
+    "technical_dependency",
+    "failure_or_blockers",
 }
 
 CANDIDATE_KEYS = {
@@ -85,17 +105,24 @@ def _known_claim_ids(graph: dict[str, Any]) -> set[str]:
     }
 
 
-def _stable_candidate_id(payload: dict[str, Any]) -> str:
+def _stable_hash(prefix: str, payload: dict[str, Any]) -> str:
     raw = json.dumps(
         payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")
     ).encode("utf-8")
-    return f"candidate_{hashlib.sha256(raw).hexdigest()[:12]}"
+    return f"{prefix}_{hashlib.sha256(raw).hexdigest()[:12]}"
+
+
+def _stable_candidate_id(payload: dict[str, Any]) -> str:
+    return _stable_hash("candidate", payload)
 
 
 def _normalize_value_chain(value_chain: Any) -> dict[str, str]:
     if not isinstance(value_chain, dict) or set(value_chain) != VALUE_CHAIN_KEYS:
         raise ValueError("value_creation_chain must contain every exact causal link")
-    return {key: _text(f"value_creation_chain.{key}", value_chain[key]) for key in sorted(VALUE_CHAIN_KEYS)}
+    return {
+        key: _text(f"value_creation_chain.{key}", value_chain[key])
+        for key in sorted(VALUE_CHAIN_KEYS)
+    }
 
 
 def _validate_claim_refs(graph: dict[str, Any], refs: list[str]) -> None:
@@ -243,3 +270,132 @@ def validate_candidate(candidate: dict[str, Any], graph: dict[str, Any]) -> None
     trusted_payload.pop("candidate_id")
     if _stable_candidate_id(trusted_payload) != candidate_id:
         raise ValueError("candidate_id does not match candidate content")
+
+
+def validate_causal_value_chain(candidate: dict[str, Any]) -> None:
+    """Verify that every required link from constraint to value capture is explicit."""
+    if not isinstance(candidate, dict):
+        raise ValueError("candidate must be a dictionary")
+    _normalize_value_chain(candidate.get("value_creation_chain"))
+
+
+def _canonical_dimension_value(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+
+
+def audit_candidate_diversity(candidates: list[dict[str, Any]]) -> dict[str, Any]:
+    """Detect candidate sets that collapse into cosmetic feature/name variants."""
+    if not isinstance(candidates, list) or len(candidates) < 2:
+        raise ValueError("candidates must contain at least two candidate objects")
+    ids: list[str] = []
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            raise ValueError("each candidate must be a dictionary")
+        candidate_id = candidate.get("candidate_id")
+        if not isinstance(candidate_id, str) or not _CANDIDATE_ID_RE.fullmatch(candidate_id):
+            raise ValueError("each candidate must have a trusted candidate ID")
+        ids.append(candidate_id)
+    if len(ids) != len(set(ids)):
+        raise ValueError("candidate IDs must be unique")
+
+    qualifying_peers = {candidate_id: 0 for candidate_id in ids}
+    pairwise: list[dict[str, Any]] = []
+    for left, right in combinations(candidates, 2):
+        different_dimensions = [
+            dimension
+            for dimension in DIVERSITY_DIMENSIONS
+            if _canonical_dimension_value(left.get(dimension))
+            != _canonical_dimension_value(right.get(dimension))
+        ]
+        count = len(different_dimensions)
+        pairwise.append(
+            {
+                "left_id": left["candidate_id"],
+                "right_id": right["candidate_id"],
+                "different_dimensions": different_dimensions,
+                "count": count,
+            }
+        )
+        if count >= 3:
+            qualifying_peers[left["candidate_id"]] += 1
+            qualifying_peers[right["candidate_id"]] += 1
+
+    collapsed = sorted(
+        candidate_id
+        for candidate_id, peer_count in qualifying_peers.items()
+        if peer_count < 2
+    )
+    return {
+        "diversity_ready": not collapsed,
+        "pairwise_differences": pairwise,
+        "collapsed_candidate_ids": collapsed,
+    }
+
+
+def audit_family_coverage(
+    candidates: list[dict[str, Any]],
+    non_applicable_families: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Require every canonical candidate family or an explicit non-applicable reason."""
+    if not isinstance(candidates, list):
+        raise ValueError("candidates must be a list")
+    generated: set[str] = set()
+    for candidate in candidates:
+        if not isinstance(candidate, dict) or candidate.get("family") not in CANDIDATE_FAMILIES:
+            raise ValueError("each candidate must contain a canonical family")
+        generated.add(candidate["family"])
+
+    non_applicable = non_applicable_families or {}
+    if not isinstance(non_applicable, dict):
+        raise ValueError("non_applicable_families must be a dictionary")
+    normalized_non_applicable: dict[str, str] = {}
+    for family, reason in non_applicable.items():
+        if family not in CANDIDATE_FAMILIES:
+            raise ValueError("non-applicable family must be canonical")
+        normalized_non_applicable[family] = _text(
+            f"non_applicable_families.{family}", reason
+        )
+    overlap = sorted(generated & set(normalized_non_applicable))
+    if overlap:
+        raise ValueError(
+            f"families cannot be both generated and non-applicable: {', '.join(overlap)}"
+        )
+    missing = sorted(CANDIDATE_FAMILIES - generated - set(normalized_non_applicable))
+    return {
+        "family_ready": not missing,
+        "generated_families": sorted(generated),
+        "non_applicable_families": dict(sorted(normalized_non_applicable.items())),
+        "missing_families": missing,
+    }
+
+
+def create_collision_research_request(
+    *,
+    candidate_id: str,
+    question: str,
+    reason: str,
+    materiality: str,
+    suggested_category: str,
+) -> dict[str, str]:
+    """Turn an unsupported decision-critical fact into a deterministic research request."""
+    if not isinstance(candidate_id, str) or not _CANDIDATE_ID_RE.fullmatch(candidate_id):
+        raise ValueError("candidate_id must be a trusted candidate_<12hex> identifier")
+    if materiality not in COLLISION_MATERIALITIES:
+        raise ValueError(
+            f"materiality must be one of {sorted(COLLISION_MATERIALITIES)}"
+        )
+    if suggested_category not in COLLISION_CATEGORIES:
+        raise ValueError(
+            f"suggested_category must be one of {sorted(COLLISION_CATEGORIES)}"
+        )
+    payload = {
+        "candidate_id": candidate_id,
+        "question": _text("question", question),
+        "reason": _text("reason", reason),
+        "materiality": materiality,
+        "suggested_category": suggested_category,
+    }
+    return {
+        "research_request_id": _stable_hash("collision", payload),
+        **payload,
+    }
