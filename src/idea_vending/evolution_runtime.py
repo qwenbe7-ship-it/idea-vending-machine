@@ -11,6 +11,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from src.idea_vending import evidence_attachment as _evidence_attachment
 from src.idea_vending import evolution_runtime_core as _core
 from src.idea_vending import evolution_schema_core as _schema_core
 from src.idea_vending.evolution_schema import validate_complete_report as _validate_e2a_complete_report
@@ -24,17 +25,44 @@ for _name in dir(_core):
         globals()[_name] = getattr(_core, _name)
 
 
-def _validate_core_report_phase(state: dict[str, Any]) -> None:
-    """Allow the stable E1 assembler to validate before E2A assessments are attached."""
+def _legacy_state(state: dict[str, Any]) -> dict[str, Any]:
     legacy = deepcopy(state)
     legacy.pop("candidate_reality_assessments", None)
-    _schema_core.validate_complete_report(legacy)
+    return legacy
 
 
-# E1 assembles the report before E2A can derive Reality Assessments. Keep that
-# internal phase on the legacy validator; the public E2A validator runs after
-# the assessments are attached below.
+def _validate_core_report_phase(state: dict[str, Any]) -> None:
+    """Allow the stable E1 assembler to validate before E2A assessments are attached."""
+    _schema_core.validate_complete_report(_legacy_state(state))
+
+
+def _validate_core_state_evidence_phase(
+    state: dict[str, Any], graph: dict[str, Any]
+) -> None:
+    """Preserve graph traceability during E1 assembly without requiring E2A output early."""
+    legacy = _legacy_state(state)
+    _schema_core.validate_evolution_state(legacy)
+    if graph.get("evolution_id") != legacy["evolution_id"]:
+        raise ValueError("state and Evidence Graph evolution_id must match")
+
+    graph_claim_ids = _evidence_attachment._claim_ids_from_graph(graph)
+    refs = legacy["evidence_refs"]
+    if len(refs) != len(set(refs)):
+        raise ValueError("state evidence_refs must not contain duplicate references")
+    missing = sorted(set(refs) - graph_claim_ids)
+    if missing:
+        raise ValueError(
+            "state references claim IDs absent from Evidence Graph: " + ", ".join(missing)
+        )
+    if legacy["report_status"] == "complete":
+        _schema_core.validate_complete_report(legacy)
+
+
+# E1 assembles the report before E2A can derive Reality Assessments. Keep only
+# that internal phase on the legacy validators; public E2A validators remain
+# strict and run after the assessments are attached below.
 _core.validate_complete_report = _validate_core_report_phase
+_core.validate_state_evidence_against_graph = _validate_core_state_evidence_phase
 
 
 class _CapturingEvaluationProvider:
@@ -61,7 +89,7 @@ def _derive_candidate_reality_assessments(
     result: dict[str, Any],
     captured_request: dict[str, Any],
     raw_evaluation: dict[str, Any],
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     candidates = result.get("candidates")
     graph = result.get("evidence_graph")
     if not isinstance(candidates, list) or len(candidates) != 10:
@@ -89,9 +117,10 @@ def _derive_candidate_reality_assessments(
         baseline=baseline,
         candidates=candidates,
     )
+    critiques = ingested["critiques"]
     critique_by_id = {
         critique["target_id"]: critique
-        for critique in ingested["critiques"]
+        for critique in critiques
         if critique.get("target_type") == "candidate"
     }
     if set(critique_by_id) != {candidate["candidate_id"] for candidate in candidates}:
@@ -125,7 +154,7 @@ def _derive_candidate_reality_assessments(
                 confidence=confidence,
             )
         )
-    return assessments
+    return assessments, critiques
 
 
 def run_evolution(
@@ -153,12 +182,13 @@ def run_evolution(
     if capturing_evaluator.request is None or capturing_evaluator.raw_output is None:
         raise ValueError("completed runtime is missing captured independent evaluation")
 
-    assessments = _derive_candidate_reality_assessments(
+    assessments, critiques = _derive_candidate_reality_assessments(
         result=result,
         captured_request=capturing_evaluator.request,
         raw_evaluation=capturing_evaluator.raw_output,
     )
     result["candidate_reality_assessments"] = assessments
+    result["critiques"] = deepcopy(critiques)
     result["state"]["candidate_reality_assessments"] = deepcopy(assessments)
     _validate_e2a_complete_report(result["state"])
     return result
