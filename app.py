@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import os
 from datetime import datetime, timezone
@@ -10,6 +11,8 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from src.idea_vending.analyzer import analyze_idea
+from src.idea_vending.assessment_store import AssessmentStore
+from src.idea_vending.evolution_handoff import generate_approved_development_package
 from src.idea_vending.evolution_runtime import run_evolution
 from src.idea_vending.openai_provider import OpenAIProviderConfig, OpenAIResponsesProvider
 from src.idea_vending.package_generator import generate_development_package
@@ -24,7 +27,7 @@ _STATIC_FILES = {
     "/app.js": ("app.js", "application/javascript; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
 }
-_API_PATHS = {"/api/analyze", "/api/package", "/api/evolve"}
+_API_PATHS = {"/api/analyze", "/api/package", "/api/evolve", "/api/evolve/approve"}
 
 
 def _utcnow_iso() -> str:
@@ -47,6 +50,16 @@ def _build_live_evolve_runner(environ: Mapping[str, str]) -> Callable[[str], dic
         )
 
     return run
+
+
+def _approved_response(record: dict[str, Any]) -> dict[str, Any]:
+    state = record["approved_state"]
+    return {
+        "runtime_id": record["runtime_id"],
+        "decision": state["decision"],
+        "human_decision": state["human_decision"],
+        "documents": record["documents"],
+    }
 
 
 class IdeaVendingHandler(BaseHTTPRequestHandler):
@@ -158,7 +171,60 @@ class IdeaVendingHandler(BaseHTTPRequestHandler):
                 {"error": "evolution_runtime_failed", "decision": None},
             )
             return
+
+        runtime = result.get("runtime")
+        if isinstance(runtime, dict) and runtime.get("status") == "completed":
+            try:
+                self.server.assessment_store.save_completed(result)  # type: ignore[attr-defined]
+            except (KeyError, TypeError, ValueError):
+                self._send_json(
+                    500,
+                    {"error": "evolution_runtime_failed", "decision": None},
+                )
+                return
         self._send_json(200, result)
+
+    def _handle_approve(self) -> None:
+        payload = self._read_json_object()
+        if payload is None:
+            return
+        if set(payload) != {"runtime_id"}:
+            self._send_json(400, {"error": "approve_request_only_accepts_runtime_id"})
+            return
+        runtime_id = payload["runtime_id"]
+        if not isinstance(runtime_id, str) or not runtime_id.strip():
+            self._send_json(400, {"error": "invalid_runtime_id"})
+            return
+
+        store = self.server.assessment_store  # type: ignore[attr-defined]
+        record = store.get(runtime_id)
+        if record is None:
+            self._send_json(404, {"error": "assessment_not_found_or_expired"})
+            return
+        if record["approved"]:
+            self._send_json(200, _approved_response(record))
+            return
+
+        state = deepcopy(record["result"]["state"])
+        decision = state.get("decision")
+        if decision not in {"GO", "MODIFY"}:
+            self._send_json(
+                409,
+                {"error": "development_handoff_blocked", "decision": decision},
+            )
+            return
+
+        state["human_decision"] = "proceed"
+        try:
+            documents = generate_approved_development_package(state)
+            approved = store.mark_approved(runtime_id, state, documents)
+        except (KeyError, TypeError, ValueError):
+            self._send_json(
+                500,
+                {"error": "approval_failed", "decision": None},
+            )
+            return
+        self._send_json(200, _approved_response(approved))
 
     def do_POST(self) -> None:
         if self.path not in _API_PATHS:
@@ -167,6 +233,9 @@ class IdeaVendingHandler(BaseHTTPRequestHandler):
 
         if self.path == "/api/evolve":
             self._handle_evolve()
+            return
+        if self.path == "/api/evolve/approve":
+            self._handle_approve()
             return
 
         idea = self._read_idea()
@@ -193,10 +262,12 @@ def create_server(
     *,
     evolve_runner: Callable[[str], dict[str, Any]] | None = None,
     environ: Mapping[str, str] | None = None,
+    assessment_store: AssessmentStore | None = None,
 ) -> ThreadingHTTPServer:
     server = ThreadingHTTPServer((host, port), IdeaVendingHandler)
     server.evolve_runner = evolve_runner  # type: ignore[attr-defined]
     server.evolve_environ = dict(os.environ if environ is None else environ)  # type: ignore[attr-defined]
+    server.assessment_store = assessment_store or AssessmentStore()  # type: ignore[attr-defined]
     return server
 
 
