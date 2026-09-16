@@ -1,3 +1,4 @@
+import math
 import unittest
 
 from src.idea_vending.bridge_contract import (
@@ -30,6 +31,12 @@ class BridgeContractTests(unittest.TestCase):
             validate_bridge_json("x" * (MAX_BRIDGE_STRING_CHARS + 1))
         with self.assertRaisesRegex(ValueError, "bridge_json_type_invalid"):
             validate_bridge_json({"unsafe": object()})
+
+    def test_json_rejects_non_finite_numbers(self):
+        for value in (math.nan, math.inf, -math.inf):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "bridge_number_invalid"):
+                    validate_bridge_json({"value": value})
 
     def test_envelope_has_exact_keys_and_matching_version(self):
         envelope = {
