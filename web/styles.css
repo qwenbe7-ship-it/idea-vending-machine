@@ -1,0 +1,32 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, Pretendard, "Noto Sans KR", system-ui, sans-serif;
+  background: #0c0f14;
+  color: #f4f6f8;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top, #1b2430 0, #0c0f14 52%); }
+button, textarea { font: inherit; }
+.shell { width: min(920px, calc(100% - 32px)); margin: 0 auto; padding: 72px 0; }
+.hero, .result { border: 1px solid #2a3441; border-radius: 24px; background: rgba(17, 22, 29, .94); box-shadow: 0 28px 80px rgba(0,0,0,.28); }
+.hero { padding: clamp(28px, 6vw, 56px); }
+.eyebrow { margin: 0 0 10px; color: #91a4bc; font-size: .78rem; font-weight: 800; letter-spacing: .16em; }
+h1 { margin: 0; font-size: clamp(2.4rem, 7vw, 5rem); line-height: .98; }
+.lead { max-width: 650px; color: #b8c3d1; font-size: 1.08rem; line-height: 1.7; }
+.idea-form { display: grid; gap: 12px; margin-top: 32px; }
+.idea-form label { font-weight: 750; }
+textarea { min-height: 150px; resize: vertical; border: 1px solid #364354; border-radius: 16px; padding: 18px; background: #0d1219; color: #f7f8fa; outline: none; }
+textarea:focus { border-color: #86a7ff; box-shadow: 0 0 0 3px rgba(134,167,255,.16); }
+button { justify-self: start; border: 0; border-radius: 999px; padding: 13px 22px; background: #f4f6f8; color: #0b0e12; font-weight: 800; cursor: pointer; }
+button:disabled { opacity: .55; cursor: wait; }
+.status { min-height: 1.5em; color: #9fb0c5; }
+.result { margin-top: 24px; padding: clamp(24px, 5vw, 44px); }
+.result-head { display: flex; align-items: start; justify-content: space-between; gap: 24px; }
+.result h2 { margin: 0; font-size: 2rem; }
+.scores { display: flex; flex-wrap: wrap; gap: 8px; justify-content: end; }
+.score { border: 1px solid #435166; border-radius: 999px; padding: 7px 11px; color: #d9e3f0; font-weight: 800; }
+article { margin-top: 30px; padding-top: 24px; border-top: 1px solid #27313e; }
+article h3 { margin-top: 0; }
+article p, li { color: #c3cedb; line-height: 1.7; }
+@media (max-width: 640px) { .shell { padding: 28px 0; } .result-head { display: block; } .scores { justify-content: start; margin-top: 16px; } }
