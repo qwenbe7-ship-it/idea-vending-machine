@@ -1,6 +1,7 @@
 import json
 import threading
 import unittest
+from http.client import HTTPConnection
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -45,6 +46,18 @@ class BridgeHTTPTests(unittest.TestCase):
             status = exc.code
             body = exc.read()
         return status, json.loads(body.decode("utf-8"))
+
+    def oversize_header_request(self, server, path):
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        try:
+            connection.putrequest("POST", path)
+            connection.putheader("Content-Type", "application/json")
+            connection.putheader("Content-Length", str(MAX_BRIDGE_BODY_BYTES + 1))
+            connection.endheaders()
+            response = connection.getresponse()
+            return response.status, json.loads(response.read().decode("utf-8"))
+        finally:
+            connection.close()
 
     def forge_request(self, server):
         status, payload = self.request(server, "/api/bridge/forge-request", {"idea": IDEA})
@@ -177,8 +190,7 @@ class BridgeHTTPTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertEqual(payload["error"], "bridge_import_invalid")
 
-        oversized = b"{" + b" " * MAX_BRIDGE_BODY_BYTES + b"}"
-        status, payload = self.request(server, "/api/bridge/forge-import", oversized)
+        status, payload = self.oversize_header_request(server, "/api/bridge/forge-import")
         self.assertEqual(status, 413)
         self.assertEqual(payload["error"], "request_too_large_or_empty")
 
