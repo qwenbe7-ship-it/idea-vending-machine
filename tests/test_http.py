@@ -24,6 +24,15 @@ class HttpTests(unittest.TestCase):
     def url(self, path):
         return f"http://127.0.0.1:{self.port}{path}"
 
+    def post_json(self, path, payload):
+        request = Request(
+            self.url(path),
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        return urlopen(request)
+
     def test_index_loads(self):
         with urlopen(self.url("/")) as response:
             body = response.read().decode("utf-8")
@@ -31,34 +40,50 @@ class HttpTests(unittest.TestCase):
         self.assertIn("아이디어 자판기", body)
 
     def test_valid_analysis_request_returns_required_fields(self):
-        payload = json.dumps({"idea": "업로드된 영수증에서 항목을 추출하고 표로 정리하는 자동화 도구"}).encode()
-        request = Request(
-            self.url("/api/analyze"),
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urlopen(request) as response:
+        with self.post_json(
+            "/api/analyze",
+            {"idea": "업로드된 영수증에서 항목을 추출하고 표로 정리하는 자동화 도구"},
+        ) as response:
             result = json.loads(response.read().decode("utf-8"))
         self.assertEqual(response.status, 200)
         self.assertIn("automation_level", result)
         self.assertIn("acceptance_criteria", result)
 
+    def test_valid_package_request_returns_analysis_and_documents(self):
+        with self.post_json(
+            "/api/package",
+            {"idea": "업로드된 영수증에서 항목을 추출하고 표로 정리하는 자동화 도구"},
+        ) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        self.assertEqual(response.status, 200)
+        self.assertIn("analysis", result)
+        self.assertEqual(set(result["documents"]), {"spec.md", "design.md", "plan.md"})
+        self.assertIn("acceptance_criteria", result["analysis"])
+
     def test_short_idea_returns_400(self):
-        payload = json.dumps({"idea": "짧은 아이디어"}).encode()
-        request = Request(
-            self.url("/api/analyze"),
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
         with self.assertRaises(HTTPError) as caught:
-            urlopen(request)
+            self.post_json("/api/analyze", {"idea": "짧은 아이디어"})
+        self.assertEqual(caught.exception.code, 400)
+
+    def test_short_idea_on_package_returns_400(self):
+        with self.assertRaises(HTTPError) as caught:
+            self.post_json("/api/package", {"idea": "짧은 아이디어"})
         self.assertEqual(caught.exception.code, 400)
 
     def test_non_json_request_returns_415(self):
         request = Request(
             self.url("/api/analyze"),
+            data=b"idea=hello",
+            headers={"Content-Type": "text/plain"},
+            method="POST",
+        )
+        with self.assertRaises(HTTPError) as caught:
+            urlopen(request)
+        self.assertEqual(caught.exception.code, 415)
+
+    def test_non_json_package_request_returns_415(self):
+        request = Request(
+            self.url("/api/package"),
             data=b"idea=hello",
             headers={"Content-Type": "text/plain"},
             method="POST",
