@@ -399,3 +399,120 @@ def create_collision_research_request(
         "research_request_id": _stable_hash("collision", payload),
         **payload,
     }
+
+
+def audit_candidate_set(
+    graph: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    transformation_tests: list[dict[str, Any]],
+    mechanism_transfers: list[dict[str, Any]],
+    *,
+    non_applicable_families: dict[str, str] | None = None,
+    original_remains_strong: bool = False,
+) -> dict[str, bool]:
+    """Compose deterministic PR C gates without selecting or scoring a candidate."""
+    from src.idea_vending.mechanism_transfer import validate_mechanism_transfer
+    from src.idea_vending.reframing import audit_reframing_readiness
+
+    schema_ready = isinstance(candidates, list) and bool(candidates)
+    if schema_ready:
+        try:
+            for candidate in candidates:
+                validate_candidate(candidate, graph)
+        except (TypeError, ValueError):
+            schema_ready = False
+
+    evidence_ready = True
+    try:
+        known_claims = _known_claim_ids(graph)
+        if not isinstance(candidates, list):
+            raise ValueError("candidates must be a list")
+        for candidate in candidates:
+            refs = candidate.get("evidence_claim_ids") if isinstance(candidate, dict) else None
+            if not isinstance(refs, list) or not set(refs).issubset(known_claims):
+                raise ValueError("candidate evidence references are unresolved")
+    except (TypeError, ValueError):
+        evidence_ready = False
+
+    reframe_ready = False
+    try:
+        reframe_ready = bool(
+            audit_reframing_readiness(
+                transformation_tests,
+                original_remains_strong=original_remains_strong,
+            )["generation_ready"]
+        )
+    except (TypeError, ValueError, KeyError):
+        reframe_ready = False
+
+    mechanism_ready = True
+    try:
+        if not isinstance(mechanism_transfers, list):
+            raise ValueError("mechanism_transfers must be a list")
+        transfer_ids: list[str] = []
+        for transfer in mechanism_transfers:
+            validate_mechanism_transfer(transfer, graph)
+            transfer_id = transfer.get("transfer_id")
+            if not isinstance(transfer_id, str) or not _TRANSFER_ID_RE.fullmatch(transfer_id):
+                raise ValueError("mechanism transfer has an invalid trusted ID")
+            transfer_ids.append(transfer_id)
+        if len(transfer_ids) != len(set(transfer_ids)):
+            raise ValueError("mechanism transfer IDs must be unique")
+        available = set(transfer_ids)
+        for candidate in candidates:
+            refs = candidate.get("mechanism_transfer_ids") if isinstance(candidate, dict) else None
+            if not isinstance(refs, list) or not set(refs).issubset(available):
+                raise ValueError("candidate references an unavailable mechanism transfer")
+    except (TypeError, ValueError, AttributeError):
+        mechanism_ready = False
+
+    causal_ready = isinstance(candidates, list) and bool(candidates)
+    if causal_ready:
+        try:
+            for candidate in candidates:
+                validate_causal_value_chain(candidate)
+        except (TypeError, ValueError):
+            causal_ready = False
+
+    diversity_ready = False
+    try:
+        diversity_ready = bool(audit_candidate_diversity(candidates)["diversity_ready"])
+    except (TypeError, ValueError, KeyError):
+        diversity_ready = False
+
+    family_ready = False
+    try:
+        family_ready = bool(
+            audit_family_coverage(
+                candidates, non_applicable_families=non_applicable_families
+            )["family_ready"]
+        )
+    except (TypeError, ValueError, KeyError):
+        family_ready = False
+
+    unknowns_ready = isinstance(candidates, list) and bool(candidates)
+    if unknowns_ready:
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                unknowns_ready = False
+                break
+            unknowns = candidate.get("unknowns")
+            questions = candidate.get("validation_questions")
+            if not isinstance(unknowns, list) or not isinstance(questions, list):
+                unknowns_ready = False
+                break
+            if not unknowns and not questions:
+                unknowns_ready = False
+                break
+
+    gates = {
+        "schema_ready": schema_ready,
+        "evidence_ready": evidence_ready,
+        "reframe_ready": reframe_ready,
+        "mechanism_ready": mechanism_ready,
+        "causal_ready": causal_ready,
+        "diversity_ready": diversity_ready,
+        "family_ready": family_ready,
+        "unknowns_ready": unknowns_ready,
+    }
+    return {**gates, "forge_ready": all(gates.values())}
