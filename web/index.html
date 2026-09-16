@@ -9,7 +9,7 @@
 <body>
   <main class="shell">
     <section class="hero" aria-labelledby="title">
-      <p class="eyebrow">IDEA → SPEC</p>
+      <p class="eyebrow">IDEA → SPEC → PLAN</p>
       <h1 id="title">아이디어 자판기</h1>
       <p class="lead">막연한 아이디어를 바로 코딩하지 않고, 먼저 개발 가능한 명세와 검증 기준으로 바꿉니다.</p>
 
@@ -39,6 +39,33 @@
       <article><h3>핵심 위험</h3><ul id="risks"></ul></article>
       <article><h3>MVP 범위</h3><ul id="mvp"></ul></article>
       <article><h3>Acceptance Criteria</h3><ol id="criteria"></ol></article>
+
+      <div class="package-action">
+        <button id="generate-package" type="button">개발 패키지 생성</button>
+        <p>검증된 분석을 바탕으로 spec.md · design.md · plan.md를 만듭니다.</p>
+      </div>
+    </section>
+
+    <section id="package" class="result package" hidden aria-labelledby="package-title">
+      <div class="result-head">
+        <div>
+          <p class="eyebrow">DEVELOPMENT PACKAGE</p>
+          <h2 id="package-title">코딩 에이전트용 개발 패키지</h2>
+        </div>
+      </div>
+
+      <article class="document-card">
+        <div class="document-head"><h3>spec.md</h3><button type="button" data-download="spec.md">다운로드</button></div>
+        <pre id="spec-preview"></pre>
+      </article>
+      <article class="document-card">
+        <div class="document-head"><h3>design.md</h3><button type="button" data-download="design.md">다운로드</button></div>
+        <pre id="design-preview"></pre>
+      </article>
+      <article class="document-card">
+        <div class="document-head"><h3>plan.md</h3><button type="button" data-download="plan.md">다운로드</button></div>
+        <pre id="plan-preview"></pre>
+      </article>
     </section>
   </main>
   <script src="/app.js" defer></script>
