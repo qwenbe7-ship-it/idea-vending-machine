@@ -22,6 +22,7 @@ from tests.test_bridge_forge import valid_forge_result
 from tests.test_evolution_runtime import FakeEvaluationProvider
 
 SCENARIOS = (
+    "BRIDGE_SIMPLE_UX",
     "BRIDGE_FORGE_EXPORT",
     "BRIDGE_FORGE_IMPORT",
     "BRIDGE_JUDGE_EXPORT",
@@ -58,13 +59,23 @@ def stop_server(server, thread: threading.Thread) -> None:
     thread.join(2)
 
 
+def hidden_json(page: Page, selector: str) -> dict:
+    raw = page.locator(selector).text_content() or ""
+    return json.loads(raw)
+
+
 def start_bridge(page: Page, base_url: str, idea: str) -> dict:
     page.goto(base_url, wait_until="domcontentloaded")
     page.locator("#idea").fill(idea)
     page.get_by_role("button", name="ChatGPT Plus로 분석").click()
     expect(page.locator("#bridge-workflow")).to_be_visible(timeout=20000)
     expect(page.locator("#evolve-submit")).to_be_enabled()
-    package = json.loads(page.locator("#forge-package").inner_text())
+    expect(page.locator("#copy-forge-prompt")).to_be_visible()
+    expect(page.locator("#copy-forge-prompt")).to_have_text("ChatGPT에서 계속하기")
+    expect(page.locator("#forge-result-input")).to_be_visible()
+    expect(page.locator("#import-forge-result")).to_have_text("계속")
+    expect(page.locator("#copy-forge-json")).to_be_hidden()
+    package = hidden_json(page, "#forge-package")
     if package.get("request_type") != "forge" or package.get("bridge_version") != BRIDGE_VERSION:
         fail("Forge package contract was not rendered")
     return package
@@ -75,8 +86,11 @@ def import_forge(page: Page, result: dict | None = None) -> dict:
     page.locator("#forge-result-input").fill(json.dumps(payload, ensure_ascii=False))
     page.locator("#import-forge-result").click()
     expect(page.locator("#judge-step")).to_be_visible(timeout=20000)
-    expect(page.locator("#forge-state")).to_contain_text("검증 완료")
-    package = json.loads(page.locator("#judge-package").inner_text())
+    expect(page.locator("#forge-state")).to_contain_text("완료")
+    expect(page.locator("#copy-judge-prompt")).to_have_text("ChatGPT에서 계속하기")
+    expect(page.locator("#judge-result-input")).to_be_visible()
+    expect(page.locator("#import-judge-result")).to_have_text("계속")
+    package = hidden_json(page, "#judge-package")
     if package.get("request_type") != "judge" or len(package.get("candidates", [])) != 10:
         fail("Judge package contract was not rendered")
     return package
@@ -105,6 +119,7 @@ def import_judge(page: Page, judge_package: dict, scenario: str) -> None:
 
 def scenario_go_round_trip(page: Page, base_url: str) -> None:
     forge_package = start_bridge(page, base_url, f"GO {IDEA_BASE} 원안 유지 검증")
+    print("PASS: BRIDGE_SIMPLE_UX")
     expect(page.locator("#forge-package")).to_contain_text('"candidate_count": 10')
     page.locator("#copy-forge-prompt").click()
     expect(page.locator("#status")).to_contain_text("복사했습니다")
@@ -121,7 +136,7 @@ def scenario_go_round_trip(page: Page, base_url: str) -> None:
     # Same Forge result replay must remain idempotent even after Judge was requested.
     page.locator("#import-forge-result").click()
     expect(page.locator("#judge-step")).to_be_visible(timeout=20000)
-    expect(page.locator("#status")).to_contain_text("2단계")
+    expect(page.locator("#status")).to_contain_text("2/2")
     print("PASS: BRIDGE_REPLAY")
 
     import_judge(page, judge_package, "go")

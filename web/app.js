@@ -132,21 +132,54 @@ function buildChatGPTPrompt(packageData) {
   return `${asText(packageData.chatgpt_instruction, '')}\n\nPACKAGE JSON:\n${prettyJson(packageData)}`;
 }
 
-async function copyText(text, successMessage) {
-  if (!text) {
-    status.textContent = '복사할 데이터가 없습니다.';
-    return;
-  }
-  if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
-    status.textContent = '이 브라우저에서는 자동 복사를 사용할 수 없습니다. 화면의 JSON을 직접 복사해 주세요.';
-    return;
-  }
+function legacyClipboardCopy(text) {
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-10000px';
+  textarea.style.top = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+  let copied = false;
   try {
-    await navigator.clipboard.writeText(text);
-    status.textContent = successMessage;
+    copied = document.execCommand('copy');
   } catch (_error) {
-    status.textContent = '클립보드 복사 권한을 사용할 수 없습니다. 화면의 내용을 직접 복사해 주세요.';
+    copied = false;
   }
+  textarea.remove();
+  return copied;
+}
+
+async function copyTextWithFallback(text, successMessage) {
+  if (!text) {
+    status.textContent = '복사할 내용이 없습니다.';
+    return false;
+  }
+
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    try {
+      await navigator.clipboard.writeText(text);
+      status.textContent = successMessage;
+      return true;
+    } catch (_error) {
+      // Some browsers deny the async Clipboard API even after a user click.
+      // Fall through to the legacy selection-based copy path.
+    }
+  }
+
+  if (legacyClipboardCopy(text)) {
+    status.textContent = successMessage;
+    return true;
+  }
+
+  status.textContent = '자동 복사가 차단되었습니다. 아래 고급 옵션에서 내용을 직접 선택해 복사해 주세요.';
+  return false;
+}
+
+async function copyText(text, successMessage) {
+  return copyTextWithFallback(text, successMessage);
 }
 
 function downloadJson(filename, value) {
@@ -175,7 +208,16 @@ function stripCodeFence(text) {
 }
 
 function parseImportedJson(text) {
-  const parsed = JSON.parse(stripCodeFence(text));
+  const normalized = stripCodeFence(text);
+  if (!normalized) {
+    throw new Error('ChatGPT 결과를 붙여넣어 주세요.');
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(normalized);
+  } catch (_error) {
+    throw new Error('ChatGPT 결과가 올바른 JSON이 아닙니다. 최종 JSON 전체를 다시 복사해 주세요.');
+  }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('JSON object가 필요합니다.');
   }
@@ -216,7 +258,7 @@ async function loadJsonFile(file, textarea) {
 function renderBridgePackage(kind, packageData) {
   const isForge = kind === 'forge';
   setText(isForge ? '#forge-package' : '#judge-package', prettyJson(packageData));
-  setText(isForge ? '#forge-state' : '#judge-state', isForge ? 'ChatGPT 실행 대기' : '독립 Judge 실행 대기');
+  setText(isForge ? '#forge-state' : '#judge-state', isForge ? 'ChatGPT 실행 대기' : '독립 검증 대기');
 }
 
 async function refreshReadiness() {
@@ -530,7 +572,7 @@ form.addEventListener('submit', async (event) => {
   hideOutput();
   resetBridge();
   submitButton.disabled = true;
-  status.textContent = 'Bridge 세션과 Forge 검증 패키지를 만들고 있습니다…';
+  status.textContent = '분석 준비를 만들고 있습니다…';
   try {
     const payload = await postJson('/api/bridge/forge-request', {idea: ideaInput.value});
     currentBridgeSessionId = payload.bridge_session_id;
@@ -539,20 +581,21 @@ form.addEventListener('submit', async (event) => {
     bridgeSection.hidden = false;
     setText('#bridge-session', `세션 ${currentBridgeSessionId}`);
     renderBridgePackage('forge', currentForgePackage);
-    status.textContent = '1단계: Forge 프롬프트를 복사해 첫 ChatGPT Plus 대화에서 실행한 뒤 최종 JSON을 붙여넣으세요.';
+    status.textContent = '1/2: ChatGPT에서 아이디어 확장을 실행하고 결과를 붙여넣으세요.';
+    bridgeSection.scrollIntoView({behavior: 'smooth', block: 'start'});
   } catch (error) {
-    status.textContent = error instanceof Error ? error.message : 'Bridge 세션 생성에 실패했습니다.';
+    status.textContent = error instanceof Error ? error.message : '분석 준비에 실패했습니다.';
   } finally {
     submitButton.disabled = false;
   }
 });
 
 document.querySelector('#copy-forge-prompt').addEventListener('click', () => {
-  copyText(buildChatGPTPrompt(currentForgePackage), 'Forge 프롬프트를 복사했습니다. 새 ChatGPT Plus 대화에 붙여넣으세요.');
+  copyText(buildChatGPTPrompt(currentForgePackage), '실행할 내용을 복사했습니다. 새 ChatGPT 대화에 붙여넣고 실행하세요.');
 });
 
 document.querySelector('#copy-forge-json').addEventListener('click', () => {
-  copyText(prettyJson(currentForgePackage), 'Forge package JSON을 복사했습니다.');
+  copyText(prettyJson(currentForgePackage), '패키지 JSON을 복사했습니다.');
 });
 
 document.querySelector('#download-forge-json').addEventListener('click', () => {
@@ -560,11 +603,11 @@ document.querySelector('#download-forge-json').addEventListener('click', () => {
 });
 
 document.querySelector('#copy-judge-prompt').addEventListener('click', () => {
-  copyText(buildChatGPTPrompt(currentJudgePackage), 'Judge 프롬프트를 복사했습니다. 반드시 별도의 새 ChatGPT 대화에 붙여넣으세요.');
+  copyText(buildChatGPTPrompt(currentJudgePackage), '독립 검증 내용을 복사했습니다. 반드시 별도의 새 ChatGPT 대화에 붙여넣으세요.');
 });
 
 document.querySelector('#copy-judge-json').addEventListener('click', () => {
-  copyText(prettyJson(currentJudgePackage), 'Judge package JSON을 복사했습니다.');
+  copyText(prettyJson(currentJudgePackage), '독립 검증 패키지 JSON을 복사했습니다.');
 });
 
 document.querySelector('#download-judge-json').addEventListener('click', () => {
@@ -574,7 +617,7 @@ document.querySelector('#download-judge-json').addEventListener('click', () => {
 document.querySelector('#forge-result-file').addEventListener('change', async (event) => {
   try {
     await loadJsonFile(event.target.files?.[0], document.querySelector('#forge-result-input'));
-    status.textContent = 'Forge JSON 파일을 불러왔습니다. 검증 버튼을 누르세요.';
+    status.textContent = '결과 JSON 파일을 불러왔습니다. 계속을 누르세요.';
   } catch (error) {
     status.textContent = error instanceof Error ? error.message : '파일을 읽지 못했습니다.';
   }
@@ -583,7 +626,7 @@ document.querySelector('#forge-result-file').addEventListener('change', async (e
 document.querySelector('#judge-result-file').addEventListener('change', async (event) => {
   try {
     await loadJsonFile(event.target.files?.[0], document.querySelector('#judge-result-input'));
-    status.textContent = 'Judge JSON 파일을 불러왔습니다. 검증 버튼을 누르세요.';
+    status.textContent = '독립 검증 JSON 파일을 불러왔습니다. 계속을 누르세요.';
   } catch (error) {
     status.textContent = error instanceof Error ? error.message : '파일을 읽지 못했습니다.';
   }
@@ -592,20 +635,20 @@ document.querySelector('#judge-result-file').addEventListener('change', async (e
 document.querySelector('#import-forge-result').addEventListener('click', async () => {
   const button = document.querySelector('#import-forge-result');
   button.disabled = true;
-  status.textContent = 'Forge 결과를 Evidence/Candidate Gate로 검증하고 있습니다…';
+  status.textContent = '1/2 결과를 검증하고 있습니다…';
   try {
     const result = parseImportedJson(document.querySelector('#forge-result-input').value);
     await postJson('/api/bridge/forge-import', makeBridgeEnvelope(result));
-    setText('#forge-state', '검증 완료 · 10개 후보');
+    setText('#forge-state', '완료 · 10개 후보');
     const judge = await postJson('/api/bridge/judge-request', {bridge_session_id: currentBridgeSessionId});
     currentJudgePackage = judge.package;
     currentBridgeVersion = judge.package?.bridge_version || currentBridgeVersion;
     judgeStep.hidden = false;
     renderBridgePackage('judge', currentJudgePackage);
-    status.textContent = '2단계: Judge 프롬프트를 복사해 별도의 새 ChatGPT 대화에서 실행한 뒤 최종 JSON을 붙여넣으세요.';
+    status.textContent = '1/2 완료. 2/2: 새 ChatGPT 대화에서 독립 검증을 실행하세요.';
     judgeStep.scrollIntoView({behavior: 'smooth', block: 'start'});
   } catch (error) {
-    status.textContent = error instanceof Error ? error.message : 'Forge 결과 검증에 실패했습니다.';
+    status.textContent = error instanceof Error ? error.message : '결과 검증에 실패했습니다.';
   } finally {
     button.disabled = false;
   }
@@ -614,15 +657,15 @@ document.querySelector('#import-forge-result').addEventListener('click', async (
 document.querySelector('#import-judge-result').addEventListener('click', async () => {
   const button = document.querySelector('#import-judge-result');
   button.disabled = true;
-  status.textContent = 'Judge 결과를 검증하고 deterministic Decision Engine을 실행하고 있습니다…';
+  status.textContent = '2/2 결과를 검증하고 최종 판단을 만들고 있습니다…';
   try {
     const result = parseImportedJson(document.querySelector('#judge-result-input').value);
     const completed = await postJson('/api/bridge/judge-import', makeBridgeEnvelope(result));
-    setText('#judge-state', '검증 완료 · 공식 판단 생성');
+    setText('#judge-state', '완료 · 공식 판단 생성');
     renderEvolutionResult(completed);
     decisionSection.scrollIntoView({behavior: 'smooth', block: 'start'});
   } catch (error) {
-    status.textContent = error instanceof Error ? error.message : 'Judge 결과 검증에 실패했습니다.';
+    status.textContent = error instanceof Error ? error.message : '독립 검증 결과 처리에 실패했습니다.';
   } finally {
     button.disabled = false;
   }

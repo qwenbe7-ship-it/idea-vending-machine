@@ -108,6 +108,9 @@ pre { max-height: 440px; overflow: auto; margin: 17px 0 0; border: 1px solid #27
 .bridge-step-head h3 { margin: 2px 0 0; line-height: 1.45; }
 .step-number { display: inline-grid; place-items: center; width: 30px; height: 30px; flex: 0 0 auto; border: 1px solid #6387d6; border-radius: 50%; color: #dce6ff; font-size: .82rem; font-weight: 900; }
 .bridge-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 18px; }
+.button-link { display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 13px 22px; background: #f4f7fb; color: #080b10; font-weight: 850; text-decoration: none; }
+.button-link:hover { filter: brightness(.94); }
+.button-link:focus-visible { outline: 3px solid rgba(134, 167, 255, .45); outline-offset: 3px; }
 .secondary-button { border: 1px solid #40516a; background: #111927; color: #dce5f1; }
 .bridge-json { max-height: 320px; margin-top: 16px; font-size: .78rem; }
 .import-box { display: grid; gap: 12px; margin-top: 22px; padding-top: 20px; border-top: 1px solid #283648; }
@@ -131,7 +134,7 @@ input[type="file"] { max-width: 100%; border: 1px solid #34445a; border-radius: 
   .executive-grid, .market-grid, .two-column, .two-column-inline, .bridge-steps { grid-template-columns: 1fr; }
   .definition-list, #next-validation, .candidate-facts, .dimension-list { grid-template-columns: 1fr; }
   .bridge-actions { display: grid; grid-template-columns: 1fr; }
-  .bridge-actions button, .import-box > button { width: 100%; }
+  .bridge-actions button, .bridge-actions .button-link, .import-box > button { width: 100%; }
   dd { margin-bottom: 8px; }
   .document-head { align-items: flex-start; flex-direction: column; }
 }
