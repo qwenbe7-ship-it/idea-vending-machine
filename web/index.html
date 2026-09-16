@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>아이디어 자판기</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero" aria-labelledby="title">
+      <p class="eyebrow">IDEA → SPEC</p>
+      <h1 id="title">아이디어 자판기</h1>
+      <p class="lead">막연한 아이디어를 바로 코딩하지 않고, 먼저 개발 가능한 명세와 검증 기준으로 바꿉니다.</p>
+
+      <form id="idea-form" class="idea-form">
+        <label for="idea">무엇을 만들고 싶나요?</label>
+        <textarea id="idea" name="idea" minlength="10" maxlength="4000" required
+          placeholder="예: 부동산 계약서를 올리면 위험조항을 찾아주는 프로그램"></textarea>
+        <button id="submit" type="submit">아이디어 넣기</button>
+      </form>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section id="result" class="result" hidden aria-labelledby="result-title">
+      <div class="result-head">
+        <div>
+          <p class="eyebrow">AGENT MD ANALYSIS</p>
+          <h2 id="result-title">개발 준비 결과</h2>
+        </div>
+        <div class="scores">
+          <span id="automation" class="score"></span>
+          <span id="feasibility" class="score"></span>
+        </div>
+      </div>
+
+      <article><h3>문제</h3><p id="problem"></p></article>
+      <article><h3>예상 고객</h3><p id="customer"></p></article>
+      <article><h3>핵심 위험</h3><ul id="risks"></ul></article>
+      <article><h3>MVP 범위</h3><ul id="mvp"></ul></article>
+      <article><h3>Acceptance Criteria</h3><ol id="criteria"></ol></article>
+    </section>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>
