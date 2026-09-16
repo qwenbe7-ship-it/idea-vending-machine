@@ -3,8 +3,8 @@ import threading
 import unittest
 from urllib.request import Request, urlopen
 
-from app import create_server
 from tests.test_evolve_api import IDEA, completed_result
+from v04_app import create_server
 
 
 class AutonomousHTTPTests(unittest.TestCase):
