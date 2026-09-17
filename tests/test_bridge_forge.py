@@ -5,6 +5,7 @@ from src.idea_vending.bridge_contract import BRIDGE_VERSION
 from src.idea_vending.bridge_request import create_forge_package
 from src.idea_vending.bridge_runtime import validate_and_run_forge_import
 from src.idea_vending.candidate_forge import CANDIDATE_FAMILIES
+from src.idea_vending.intent_planner import RESEARCH_PLAN_CATEGORIES
 from tests.test_evolution_runtime import FakeIdeationProvider, NOW
 
 
@@ -107,6 +108,24 @@ class BridgeForgeTests(unittest.TestCase):
         self.assertIsNone(forge["state"]["decision"])
         self.assertTrue(all(record["provider_metadata"]["provider"] == "chatgpt_plus_bridge" for record in forge["evidence_graph"]["records"]))
         self.assertTrue(all(record["provider_metadata"]["source_verification"] == "user_mediated" for record in forge["evidence_graph"]["records"]))
+
+    def test_valid_forge_import_reuses_server_derived_intent_context(self):
+        envelope = {
+            "bridge_session_id": SESSION_ID,
+            "bridge_version": BRIDGE_VERSION,
+            "result": valid_forge_result(),
+        }
+        session = {"bridge_session_id": SESSION_ID, "raw_idea": IDEA, "state": "forge_requested"}
+        forge = validate_and_run_forge_import(session, envelope, now_provider=lambda: NOW)
+
+        self.assertEqual(forge["intent_model"]["primary_objective"], IDEA)
+        self.assertEqual(forge["state"]["normalized_intent"], IDEA)
+        self.assertIsNone(forge["intent_model"]["primary_buyer"])
+        self.assertIn("primary_buyer", forge["intent_model"]["material_unknowns"])
+        self.assertEqual(
+            set(forge["research_plan"]["research_questions"]),
+            set(RESEARCH_PLAN_CATEGORIES),
+        )
 
     def test_missing_family_and_trusted_id_injection_are_rejected(self):
         for mutate in ("missing_family", "trusted_id"):
