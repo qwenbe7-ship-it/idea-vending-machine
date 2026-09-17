@@ -12,6 +12,8 @@ from typing import Any, Protocol
 from src.idea_vending.reframing import TRANSFORMATIONS
 
 IDEATION_OPERATIONS = {
+    "interpret_intent",
+    "plan_research",
     "extract_assumptions",
     "challenge_assumptions",
     "propose_reframes",
