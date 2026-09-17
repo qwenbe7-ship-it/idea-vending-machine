@@ -461,6 +461,45 @@ def finalize_evolution_from_forge(
     )
 
 
+def _intent_provider_failure_result(
+    idea: str,
+    *,
+    code: str,
+    now_provider: Any,
+    event_sink: Any = None,
+) -> dict[str, Any]:
+    """Preserve the stable runtime contract when pre-core intent capture cannot complete."""
+    analysis = analyze_idea(idea)
+    started_at = now_provider()
+    evolution_id = _core._digest("evo", {"idea": idea})
+    runtime_id = _core._digest(
+        "run", {"evolution_id": evolution_id, "started_at": started_at}
+    )
+    state = _core.create_evolution_state(idea, evolution_id)
+    state["normalized_intent"] = analysis["problem"]
+    _core.validate_evolution_state(state)
+    graph = _core.create_evidence_graph(evolution_id)
+    runtime = _core.create_runtime_record(runtime_id, evolution_id, started_at)
+    _core._emit(
+        runtime,
+        stage="capture",
+        status="started",
+        code="capture_started",
+        now_provider=now_provider,
+        event_sink=event_sink,
+    )
+    return _core._incomplete(
+        runtime,
+        state,
+        graph,
+        [],
+        stage="capture",
+        code=code,
+        now_provider=now_provider,
+        event_sink=event_sink,
+    )
+
+
 def run_evolution(
     idea: str,
     *,
@@ -471,11 +510,22 @@ def run_evolution(
     event_sink: Any = None,
 ) -> dict[str, Any]:
     """Run E1 and attach ten deterministic E2A Reality Assessments on success."""
-    intent_context, wrapped_research, e2a_ideation_provider = _intent_wrapped_providers(
-        idea,
-        research_provider=research_provider,
-        ideation_provider=ideation_provider,
-    )
+    try:
+        intent_context, wrapped_research, e2a_ideation_provider = _intent_wrapped_providers(
+            idea,
+            research_provider=research_provider,
+            ideation_provider=ideation_provider,
+        )
+    except Exception as exc:
+        failure_code = _core._provider_failure_code(exc)
+        if failure_code is None:
+            raise
+        return _intent_provider_failure_result(
+            idea,
+            code=failure_code,
+            now_provider=now_provider,
+            event_sink=event_sink,
+        )
     capturing_evaluator = _CapturingEvaluationProvider(evaluation_provider)
     result = _core.run_evolution(
         idea,
