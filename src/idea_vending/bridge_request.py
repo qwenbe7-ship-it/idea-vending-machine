@@ -20,6 +20,7 @@ from src.idea_vending.evidence_graph import (
     FRESHNESS_STATUSES,
     MARKET_ESTIMATE_KINDS,
 )
+from src.idea_vending.intent_planner import build_conservative_intent_context
 from src.idea_vending.reframing import (
     ASSUMPTION_STATUSES,
     ASSUMPTION_TYPES,
@@ -311,22 +312,30 @@ def create_forge_package(
 
     families = sorted(CANDIDATE_FAMILIES)
     section_schemas = _forge_section_schemas()
+    intent_context = build_conservative_intent_context(raw_idea)
+    intent = intent_context["intent_model"]
+    hard_constraints = "; ".join(intent["hard_constraints"]) or "unknown — research rather than invent"
+    success_metrics = "; ".join(intent["success_metrics"]) or "unknown — research rather than invent"
+    material_unknowns = ", ".join(intent["material_unknowns"])
     instruction = (
-        "You are the Forge pass for Idea Vending Machine. Perform current web research and preserve source URLs and "
-        "explicit source metadata. Seek counter-evidence, prior art, competitors, and failure/blocker evidence instead "
-        "of trying to sell the idea. Follow result_contract.section_schemas exactly: do not omit required fields or add "
-        "extra fields. Use only verifiable sources with an exact publication date in YYYY-MM-DD form for admitted evidence. "
-        "Use a unique bridge_claim_ref beginning with bc_ for every evidence draft; when inherited fields are named "
-        "supporting_claim_ids, contradicting_claim_ids, or evidence_claim_ids, put bridge_claim_ref values there because "
-        "the server creates trusted IDs later. Earlier Forge sections may reference only bridge_claim_ref values already "
-        "defined in landscape_research. collision_research is created after candidates, so collision evidence cannot be "
-        "referenced by extract_assumptions, discover_mechanisms, or forge_candidates. Landscape evidence must use "
-        "candidate_families=[] and must include at least market_status and counter_evidence evidence_type records. Generate "
-        "exactly ten structurally different candidates, exactly one for each candidate family, and keep the candidate array "
-        "in the supplied canonical order. Collision evidence refers to candidates by candidate_families and must include "
-        "prior_art, competitors, and failure_or_blockers evidence_type records. Do not rank candidates, choose a winner, "
-        "set Reality Verdicts, set GO/MODIFY/HOLD/KILL, set confidence, or set human approval. Return one JSON object only "
-        "containing the seven required result sections."
+        "You are the Forge pass for Idea Vending Machine. Optimize all research and candidate generation for this supplied "
+        f"objective: {intent['primary_objective']}. Hard constraints: {hard_constraints}. Success metrics: {success_metrics}. "
+        f"Material unknowns: {material_unknowns}. Use the research questions in intent_context.research_plan as the bounded "
+        "agenda for evidence gathering; unresolved user facts must remain unknown rather than being invented. Perform current "
+        "web research and preserve source URLs and explicit source metadata. Seek counter-evidence, prior art, competitors, "
+        "and failure/blocker evidence instead of trying to sell the idea. Follow result_contract.section_schemas exactly: do "
+        "not omit required fields or add extra fields. Use only verifiable sources with an exact publication date in "
+        "YYYY-MM-DD form for admitted evidence. Use a unique bridge_claim_ref beginning with bc_ for every evidence draft; "
+        "when inherited fields are named supporting_claim_ids, contradicting_claim_ids, or evidence_claim_ids, put "
+        "bridge_claim_ref values there because the server creates trusted IDs later. Earlier Forge sections may reference only "
+        "bridge_claim_ref values already defined in landscape_research. collision_research is created after candidates, so "
+        "collision evidence cannot be referenced by extract_assumptions, discover_mechanisms, or forge_candidates. Landscape "
+        "evidence must use candidate_families=[] and must include at least market_status and counter_evidence evidence_type "
+        "records. Generate exactly ten structurally different candidates, exactly one for each candidate family, and keep the "
+        "candidate array in the supplied canonical order. Collision evidence refers to candidates by candidate_families and "
+        "must include prior_art, competitors, and failure_or_blockers evidence_type records. Do not rank candidates, choose a "
+        "winner, set Reality Verdicts, set GO/MODIFY/HOLD/KILL, set confidence, or set human approval. Return one JSON object "
+        "only containing the seven required result sections."
     )
     return {
         "bridge_version": BRIDGE_VERSION,
@@ -335,6 +344,7 @@ def create_forge_package(
         "created_at": created_at,
         "raw_idea": raw_idea,
         "objective": "Research the idea, break assumptions, transfer mechanisms, and forge ten distinct candidates.",
+        "intent_context": intent_context,
         "research_requirements": [
             "current web research",
             "source URLs and publication metadata",
