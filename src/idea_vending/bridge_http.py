@@ -9,6 +9,7 @@ preserved.
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime, timezone
 from typing import Any
 
 from src.idea_vending.bridge_errors import bridge_import_error_payload
@@ -40,6 +41,10 @@ def _completed_bridge_response(session_id: str, completed: dict[str, Any]) -> di
 
 class BridgeValidationHTTPMixin:
     """Preserve Bridge transport while exposing only closed safe error metadata."""
+
+    @staticmethod
+    def _bridge_now_provider() -> str:
+        return datetime.now(timezone.utc).isoformat()
 
     def _handle_bridge_forge_import(self) -> None:
         envelope = self._read_json_object(max_body_bytes=MAX_BRIDGE_BODY_BYTES)
