@@ -36,6 +36,22 @@ class BridgePromptContractTests(unittest.TestCase):
         self.assertIn("REPAIR_TO_PREVENT", transformation["properties"]["transformation"]["enum"])
         self.assertIn("material", transformation["properties"]["materiality"]["enum"])
 
+    def test_forge_package_exposes_iso_publication_date_contract(self):
+        package = create_forge_package(IDEA, SESSION_ID, NOW)
+        publication_date = (
+            package["result_contract"]["section_schemas"]["landscape_research"]
+            ["items"]["properties"]["publication_date"]
+        )
+        self.assertEqual(publication_date["type"], "string")
+        self.assertEqual(publication_date["pattern"], r"^\d{4}-\d{2}-\d{2}$")
+
+    def test_forge_instruction_forbids_forward_collision_claim_references(self):
+        package = create_forge_package(IDEA, SESSION_ID, NOW)
+        instruction = package["chatgpt_instruction"]
+        self.assertIn("collision evidence cannot be referenced", instruction)
+        self.assertIn("landscape_research", instruction)
+        self.assertIn("YYYY-MM-DD", instruction)
+
     def test_judge_package_exposes_exact_critique_and_additional_evidence_schemas(self):
         package = create_judge_package(trusted_forge(), SESSION_ID, NOW)
         contract = package["result_contract"]
