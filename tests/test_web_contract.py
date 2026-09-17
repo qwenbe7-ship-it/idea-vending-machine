@@ -42,6 +42,7 @@ class WebContractTests(unittest.TestCase):
             'id="plan-preview"',
         ):
             self.assertIn(expected, html)
+        self.assertIn('src="/bridge_validation.js"', html)
         self.assertIn("ChatGPT Plus로 분석", html)
         self.assertIn("별도의 새 ChatGPT 대화", html)
 
@@ -103,7 +104,7 @@ class WebContractTests(unittest.TestCase):
 
     def test_bridge_imports_render_local_server_validation_status(self):
         html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
-        source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+        source = (ROOT / "web" / "bridge_validation.js").read_text(encoding="utf-8")
         self.assertIn('id="forge-validation-status"', html)
         self.assertIn('id="judge-validation-status"', html)
         self.assertIn("function renderBridgeValidation", source)
@@ -113,6 +114,8 @@ class WebContractTests(unittest.TestCase):
         self.assertIn("repair_instruction", source)
         self.assertIn("검증 중", source)
         self.assertIn("검증 완료 · 10개 후보", source)
+        for forbidden in ("innerHTML", "outerHTML", "document.write(", "eval(", "new Function("):
+            self.assertNotIn(forbidden, source)
 
     def test_runtime_and_reality_evaluation_are_rendered_from_server_payload(self):
         source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
