@@ -20,6 +20,7 @@ class WebContractTests(unittest.TestCase):
             'id="forge-result-input"',
             'id="forge-result-file"',
             'id="import-forge-result"',
+            'id="forge-validation-status"',
             'id="judge-package"',
             'id="copy-judge-prompt"',
             'id="copy-judge-json"',
@@ -27,6 +28,7 @@ class WebContractTests(unittest.TestCase):
             'id="judge-result-input"',
             'id="judge-result-file"',
             'id="import-judge-result"',
+            'id="judge-validation-status"',
             'id="api-mode-indicator"',
             'id="runtime-progress"',
             'id="executive-decision"',
@@ -98,6 +100,19 @@ class WebContractTests(unittest.TestCase):
         self.assertIn("result", body)
         for forbidden in ("decision", "confidence", "human_decision", "selected_concept_id"):
             self.assertNotIn(forbidden, body)
+
+    def test_bridge_imports_render_local_server_validation_status(self):
+        html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+        source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('id="forge-validation-status"', html)
+        self.assertIn('id="judge-validation-status"', html)
+        self.assertIn("function renderBridgeValidation", source)
+        self.assertIn("#forge-validation-status", source)
+        self.assertIn("#judge-validation-status", source)
+        self.assertIn("validation_error", source)
+        self.assertIn("repair_instruction", source)
+        self.assertIn("검증 중", source)
+        self.assertIn("검증 완료 · 10개 후보", source)
 
     def test_runtime_and_reality_evaluation_are_rendered_from_server_payload(self):
         source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
