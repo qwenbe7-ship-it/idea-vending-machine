@@ -96,29 +96,49 @@ class BridgeJudgeTests(unittest.TestCase):
                 now_provider=lambda: NOW,
             )
 
-    def test_judge_official_field_injection_and_wrong_state_are_rejected(self):
+    def test_judge_cannot_inject_any_official_decision_authority(self):
         forge = trusted_forge()
-        result = valid_judge_result(forge)
-        result["decision"] = "GO"
-        for state, payload in (
-            ("judge_requested", result),
-            ("forge_validated", valid_judge_result(forge)),
+        for field, value in (
+            ("decision", "GO"),
+            ("selected_concept_id", forge["candidates"][0]["candidate_id"]),
+            ("confidence", "high"),
+            ("human_decision", "proceed"),
         ):
-            with self.assertRaises(ValueError):
+            result = valid_judge_result(forge)
+            result[field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
                 validate_and_finalize_judge_import(
                     {
                         "bridge_session_id": SESSION_ID,
                         "raw_idea": IDEA,
-                        "state": state,
+                        "state": "judge_requested",
                         "trusted_forge": forge,
                     },
                     {
                         "bridge_session_id": SESSION_ID,
                         "bridge_version": BRIDGE_VERSION,
-                        "result": payload,
+                        "result": result,
                     },
                     now_provider=lambda: NOW,
                 )
+
+    def test_judge_wrong_state_is_rejected(self):
+        forge = trusted_forge()
+        with self.assertRaises(ValueError):
+            validate_and_finalize_judge_import(
+                {
+                    "bridge_session_id": SESSION_ID,
+                    "raw_idea": IDEA,
+                    "state": "forge_validated",
+                    "trusted_forge": forge,
+                },
+                {
+                    "bridge_session_id": SESSION_ID,
+                    "bridge_version": BRIDGE_VERSION,
+                    "result": valid_judge_result(forge),
+                },
+                now_provider=lambda: NOW,
+            )
 
     def test_judge_critique_must_cover_all_evaluator_dimensions(self):
         forge = trusted_forge()
