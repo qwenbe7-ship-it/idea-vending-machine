@@ -12,6 +12,7 @@ from src.idea_vending.bridge_replay import (
     BridgeIdeationReplay,
     BridgeResearchReplay,
 )
+from src.idea_vending.bridge_schema import validate_forge_bridge_result
 from src.idea_vending.evolution_runtime import (
     ForgeArtifact,
     finalize_evolution_from_forge,
@@ -69,6 +70,7 @@ def validate_and_run_forge_import(
     if not isinstance(result, dict) or set(result) != _FORGE_RESULT_KEYS:
         raise ValueError("bridge_forge_result_invalid")
     validate_bridge_json(result)
+    validate_forge_bridge_result(result)
 
     retrieved_date = _retrieved_date_from_now(now_provider)
     research = BridgeResearchReplay(
