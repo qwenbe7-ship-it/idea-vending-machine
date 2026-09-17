@@ -156,6 +156,18 @@ class BridgeForgeTests(unittest.TestCase):
                     now_provider=lambda: NOW,
                 )
 
+    def test_out_of_order_candidate_families_are_rejected_precisely(self):
+        result = valid_forge_result()
+        candidates = result["forge_candidates"]["candidates"]
+        candidates[0], candidates[1] = candidates[1], candidates[0]
+
+        with self.assertRaisesRegex(ValueError, "bridge_candidate_family_order_invalid"):
+            validate_and_run_forge_import(
+                {"bridge_session_id": SESSION_ID, "raw_idea": IDEA, "state": "forge_requested"},
+                {"bridge_session_id": SESSION_ID, "bridge_version": BRIDGE_VERSION, "result": result},
+                now_provider=lambda: NOW,
+            )
+
     def test_forward_collision_claim_reference_is_rejected_precisely(self):
         result = valid_forge_result()
         result["forge_candidates"]["candidates"][0]["evidence_claim_ids"] = ["bc_prior01"]
