@@ -27,6 +27,8 @@ SCENARIOS = (
     "BRIDGE_SIMPLE_UX",
     "BRIDGE_FORGE_EXPORT",
     "BRIDGE_FORGE_IMPORT",
+    "BRIDGE_LOCAL_VALIDATION_SUCCESS",
+    "BRIDGE_LOCAL_VALIDATION_ERROR",
     "BRIDGE_JUDGE_EXPORT",
     "BRIDGE_JUDGE_IMPORT",
     "BRIDGE_GO_APPROVAL",
@@ -112,6 +114,8 @@ def import_forge(page: Page, result: dict | None = None) -> dict:
     page.locator("#import-forge-result").click()
     expect(page.locator("#judge-step")).to_be_visible(timeout=20000)
     expect(page.locator("#forge-state")).to_contain_text("완료")
+    expect(page.locator("#forge-validation-status")).to_be_visible()
+    expect(page.locator("#forge-validation-status")).to_contain_text("검증 완료 · 10개 후보")
     expect(page.locator("#copy-judge-prompt")).to_have_text("ChatGPT에서 계속하기")
     expect(page.locator("#judge-result-input")).to_be_visible()
     expect(page.locator("#import-judge-result")).to_have_text("계속")
@@ -140,6 +144,8 @@ def import_judge(page: Page, judge_package: dict, scenario: str) -> None:
     expect(page.locator("#executive-decision")).to_be_visible(timeout=20000)
     expect(page.locator("#candidate-grid .candidate-card")).to_have_count(10)
     expect(page.locator("#judge-state")).to_contain_text("공식 판단 생성")
+    expect(page.locator("#judge-validation-status")).to_be_visible()
+    expect(page.locator("#judge-validation-status")).to_contain_text("검증 완료")
 
 
 def scenario_go_round_trip(page: Page, base_url: str) -> None:
@@ -155,6 +161,7 @@ def scenario_go_round_trip(page: Page, base_url: str) -> None:
 
     judge_package = import_forge(page)
     print("PASS: BRIDGE_FORGE_IMPORT")
+    print("PASS: BRIDGE_LOCAL_VALIDATION_SUCCESS")
     expect(page.locator("#judge-step")).to_contain_text("별도의 새 ChatGPT 대화")
     print("PASS: BRIDGE_JUDGE_EXPORT")
 
@@ -206,6 +213,20 @@ def scenario_kill(page: Page, base_url: str) -> None:
     expect(page.locator("#approval-guidance")).to_contain_text("KILL")
     expect(page.locator("#package")).to_be_hidden()
     print("PASS: BRIDGE_KILL_BLOCKED")
+
+
+def scenario_local_validation_error(page: Page, base_url: str) -> None:
+    start_bridge(page, base_url, f"LOCAL ERROR {IDEA_BASE}")
+    invalid = valid_forge_result()
+    invalid["landscape_research"][0]["publication_date"] = "date unavailable"
+    page.locator("#forge-result-input").fill(json.dumps(invalid, ensure_ascii=False))
+    page.locator("#import-forge-result").click()
+    local = page.locator("#forge-validation-status")
+    expect(local).to_be_visible(timeout=20000)
+    expect(local).to_have_attribute("data-state", "error")
+    expect(local).to_contain_text("YYYY-MM-DD")
+    expect(page.locator("#judge-step")).to_be_hidden()
+    print("PASS: BRIDGE_LOCAL_VALIDATION_ERROR")
 
 
 def scenario_malformed_import(page: Page, base_url: str) -> None:
@@ -347,6 +368,7 @@ def run_bridge_suite(browser) -> None:
         scenario_modify(page, base_url)
         scenario_hold(page, base_url)
         scenario_kill(page, base_url)
+        scenario_local_validation_error(page, base_url)
         scenario_malformed_import(page, base_url)
         scenario_wrong_session(page, base_url)
         scenario_xss(page, base_url)
