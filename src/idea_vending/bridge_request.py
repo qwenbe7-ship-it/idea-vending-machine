@@ -6,6 +6,7 @@ from copy import deepcopy
 from typing import Any
 
 from src.idea_vending.bridge_contract import BRIDGE_VERSION
+from src.idea_vending.bridge_schema import evidence_draft_schema
 from src.idea_vending.candidate_forge import CANDIDATE_FAMILIES
 from src.idea_vending.evaluator_contract import (
     BLOCKER_MATERIALITIES,
@@ -68,25 +69,8 @@ def _market_size_schema() -> dict[str, Any]:
 
 
 def _evidence_draft_schema() -> dict[str, Any]:
-    properties = {
-        "bridge_claim_ref": {"type": "string", "pattern": r"^bc_[A-Za-z0-9_-]{4,64}$"},
-        "claim": {"type": "string"},
-        "source_title": {"type": "string"},
-        "source_url": {"type": "string"},
-        "publisher": {"type": "string"},
-        "publication_date": {"type": "string"},
-        "geography": {"type": "string"},
-        "population_or_market_definition": {"type": "string"},
-        "evidence_type": {"type": "string"},
-        "supports_or_contradicts": {"type": "string", "enum": sorted(EVIDENCE_DIRECTIONS)},
-        "confidence_tier": {"type": "string", "enum": sorted(CONFIDENCE_TIERS)},
-        "freshness_status": {"type": "string", "enum": sorted(FRESHNESS_STATUSES)},
-        "candidate_families": _text_array(enum=sorted(CANDIDATE_FAMILIES)),
-        "notes": {"type": "string"},
-        "raw_excerpt": {"type": "string"},
-        "market_size": {"anyOf": [{"type": "null"}, _market_size_schema()]},
-    }
-    return _object_schema(properties, list(properties))
+    """Compatibility wrapper around the canonical Bridge evidence contract."""
+    return evidence_draft_schema()
 
 
 def _assumption_schema() -> dict[str, Any]:
@@ -331,15 +315,18 @@ def create_forge_package(
         "You are the Forge pass for Idea Vending Machine. Perform current web research and preserve source URLs and "
         "explicit source metadata. Seek counter-evidence, prior art, competitors, and failure/blocker evidence instead "
         "of trying to sell the idea. Follow result_contract.section_schemas exactly: do not omit required fields or add "
-        "extra fields. Use a unique bridge_claim_ref beginning with bc_ for every evidence draft; when inherited fields "
-        "are named supporting_claim_ids, contradicting_claim_ids, or evidence_claim_ids, put bridge_claim_ref values "
-        "there because the server creates trusted IDs later. Landscape evidence must use candidate_families=[] and must "
-        "include at least market_status and counter_evidence evidence_type records. Generate exactly ten structurally "
-        "different candidates, exactly one for each candidate family, and keep the candidate array in the supplied "
-        "canonical order. Collision evidence refers to candidates by candidate_families and must include prior_art, "
-        "competitors, and failure_or_blockers evidence_type records. Do not rank candidates, choose a winner, set Reality "
-        "Verdicts, set GO/MODIFY/HOLD/KILL, set confidence, or set human approval. Return one JSON object only containing "
-        "the seven required result sections."
+        "extra fields. Use only verifiable sources with an exact publication date in YYYY-MM-DD form for admitted evidence. "
+        "Use a unique bridge_claim_ref beginning with bc_ for every evidence draft; when inherited fields are named "
+        "supporting_claim_ids, contradicting_claim_ids, or evidence_claim_ids, put bridge_claim_ref values there because "
+        "the server creates trusted IDs later. Earlier Forge sections may reference only bridge_claim_ref values already "
+        "defined in landscape_research. collision_research is created after candidates, so collision evidence cannot be "
+        "referenced by extract_assumptions, discover_mechanisms, or forge_candidates. Landscape evidence must use "
+        "candidate_families=[] and must include at least market_status and counter_evidence evidence_type records. Generate "
+        "exactly ten structurally different candidates, exactly one for each candidate family, and keep the candidate array "
+        "in the supplied canonical order. Collision evidence refers to candidates by candidate_families and must include "
+        "prior_art, competitors, and failure_or_blockers evidence_type records. Do not rank candidates, choose a winner, "
+        "set Reality Verdicts, set GO/MODIFY/HOLD/KILL, set confidence, or set human approval. Return one JSON object only "
+        "containing the seven required result sections."
     )
     return {
         "bridge_version": BRIDGE_VERSION,
@@ -372,7 +359,10 @@ def create_forge_package(
                 "collision_research",
             ],
             "section_schemas": section_schemas,
-            "evidence_reference_rule": "Use unique bc_ bridge_claim_ref values; never invent trusted claim_/ev_ IDs.",
+            "evidence_reference_rule": (
+                "Use unique bc_ bridge_claim_ref values; never invent trusted claim_/ev_ IDs. "
+                "Only landscape_research refs may be used by earlier Forge sections; collision refs are not forward-referenceable."
+            ),
             "candidate_reference_rule": "Collision evidence uses candidate_families from the canonical family list.",
             "candidate_count": 10,
         },
