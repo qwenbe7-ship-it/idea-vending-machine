@@ -242,6 +242,13 @@ def validate_forge_bridge_result(result: Any) -> None:
             raise ValueError("bridge_ideation_result_missing")
         _walk_claim_references(value, landscape_refs)
 
+    forge_candidates = result.get("forge_candidates")
+    candidates = forge_candidates.get("candidates") if isinstance(forge_candidates, dict) else None
+    if isinstance(candidates, list) and len(candidates) == len(CANDIDATE_FAMILIES):
+        families = [candidate.get("family") if isinstance(candidate, dict) else None for candidate in candidates]
+        if set(families) == CANDIDATE_FAMILIES and families != sorted(CANDIDATE_FAMILIES):
+            raise ValueError("bridge_candidate_family_order_invalid")
+
     for draft in collision:
         validate_bridge_evidence_draft(draft)
         ref = draft["bridge_claim_ref"]
