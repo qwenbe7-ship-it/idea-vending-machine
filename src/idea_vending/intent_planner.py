@@ -2,7 +2,9 @@
 
 This module produces requests only. Model output remains untrusted until the
 Intent Model or Research Plan validators accept it. Research planning generates
-questions, never evidence or official decisions.
+questions, never evidence or official decisions. Human-mediated Bridge mode also
+uses a deterministic conservative context that preserves the raw idea while
+leaving every unsupported user fact explicitly unknown.
 """
 
 from __future__ import annotations
@@ -134,6 +136,83 @@ def build_research_plan_request(intent_model: dict[str, Any]) -> dict[str, Any]:
             "Do not rank solutions or set official decisions.",
         ],
     )
+
+
+def build_conservative_intent_context(raw_idea: str) -> dict[str, Any]:
+    """Build deterministic Bridge context without inventing unsupported user facts.
+
+    Bridge mode cannot call a provider before exporting the Forge package. The
+    server therefore treats the user's raw text as the only known objective and
+    desired outcome, leaves actor/metric/constraint details unknown, and creates
+    bounded research questions whose purpose is to resolve those unknowns.
+    """
+    if not isinstance(raw_idea, str) or not raw_idea.strip():
+        raise ValueError("raw_idea must be a non-empty string")
+    idea = raw_idea.strip()
+    unknowns = [
+        "primary_buyer",
+        "primary_user",
+        "hard_constraints",
+        "success_metrics",
+        "non_goals",
+        "risk_tolerance",
+        "automation_target",
+    ]
+    intent = validate_intent_model(
+        {
+            "primary_objective": idea,
+            "desired_outcome": idea,
+            "primary_buyer": None,
+            "primary_user": None,
+            "jobs_to_be_done": [],
+            "hard_constraints": [],
+            "soft_preferences": [],
+            "success_metrics": [],
+            "non_goals": [],
+            "risk_tolerance": None,
+            "automation_target": None,
+            "evidence_questions": [
+                "Who actually experiences this problem, who buys a solution, and how often does the problem occur?",
+                "What measurable outcome would prove that this objective has been achieved?",
+                "Which operating, security, regulatory, or human-approval constraints are mandatory?",
+            ],
+            "material_unknowns": unknowns,
+            "interpretation_notes": [
+                "Bridge mode preserved the raw idea as the objective and did not infer missing user facts."
+            ],
+        }
+    )
+    plan = validate_research_plan(
+        {
+            "research_questions": {
+                "market_customer_demand": [
+                    f"For the objective '{idea}', who has the strongest recurring demand, who pays, and what evidence shows the problem is frequent and material?"
+                ],
+                "workflow_economics": [
+                    f"For '{idea}', what is the current workflow, where is time or money lost, and what measurable economic improvement would matter?"
+                ],
+                "alternatives_incumbents": [
+                    f"For '{idea}', what products, services, manual workarounds, and incumbent workflows already solve the same job, and where do they fail?"
+                ],
+                "implementation_feasibility": [
+                    f"For '{idea}', which technical steps can be automated reliably today, which require deterministic controls, and which still require human approval?"
+                ],
+                "data_quality": [
+                    f"For '{idea}', what data is required, is it realistically accessible, and what quality, freshness, and provenance limitations could block reliable operation?"
+                ],
+                "regulation_security": [
+                    f"For '{idea}', what privacy, security, contractual, licensing, or regulatory constraints materially limit implementation or deployment?"
+                ],
+                "failure_blockers": [
+                    f"For '{idea}', what adoption, accuracy, integration, liability, cost, or workflow failures could make the concept unacceptable even if technically possible?"
+                ],
+                "adjacent_mechanisms": [
+                    f"For '{idea}', which proven mechanisms from adjacent industries change the workflow or incentives rather than merely adding another tool?"
+                ],
+            }
+        }
+    )
+    return {"intent_model": intent, "research_plan": plan}
 
 
 def flatten_research_questions(
