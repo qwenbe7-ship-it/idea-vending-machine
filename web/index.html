@@ -67,6 +67,7 @@
           <label for="forge-result-input"><strong>ChatGPT 결과 붙여넣기</strong></label>
           <textarea id="forge-result-input" spellcheck="false" placeholder="ChatGPT가 만든 최종 JSON을 여기에 붙여넣으세요."></textarea>
           <button id="import-forge-result" type="button">계속</button>
+          <p id="forge-validation-status" class="status bridge-validation-status" role="status" aria-live="polite" hidden></p>
         </div>
 
         <details class="candidate-expand">
@@ -100,6 +101,7 @@
           <label for="judge-result-input"><strong>ChatGPT 결과 붙여넣기</strong></label>
           <textarea id="judge-result-input" spellcheck="false" placeholder="새 ChatGPT 대화의 최종 JSON을 여기에 붙여넣으세요."></textarea>
           <button id="import-judge-result" type="button">계속</button>
+          <p id="judge-validation-status" class="status bridge-validation-status" role="status" aria-live="polite" hidden></p>
         </div>
 
         <details class="candidate-expand">
@@ -219,5 +221,6 @@
     </section>
   </main>
   <script src="/app.js" defer></script>
+  <script src="/bridge_validation.js" defer></script>
 </body>
 </html>
