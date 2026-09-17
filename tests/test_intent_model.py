@@ -79,6 +79,21 @@ class IntentModelContractTests(unittest.TestCase):
         self.assertIsNone(intent["automation_target"])
         self.assertEqual(intent["material_unknowns"], raw["material_unknowns"])
 
+    def test_contradictory_constraints_remain_visible_instead_of_being_reconciled(self):
+        raw = deepcopy(VALID_INTENT)
+        raw["hard_constraints"] = [
+            "모든 고객 응답은 사람 승인을 거쳐야 한다.",
+            "모든 고객 응답은 사람 승인 없이 즉시 전송되어야 한다.",
+        ]
+        raw["material_unknowns"] = [
+            "상충하는 승인 요구사항 중 어떤 것이 실제 운영 우선순위인지 확인 필요"
+        ]
+
+        intent = validate_intent_model(raw)
+
+        self.assertEqual(intent["hard_constraints"], raw["hard_constraints"])
+        self.assertEqual(intent["material_unknowns"], raw["material_unknowns"])
+
     def test_rejects_extra_keys_blank_material_text_and_invalid_lists(self):
         extra = {**VALID_INTENT, "invented_fact": "should not exist"}
         with self.assertRaisesRegex(ValueError, "intent model keys"):
