@@ -18,6 +18,7 @@ from src.idea_vending.evolution_runtime import (
     finalize_evolution_from_forge,
     run_forge_phase,
 )
+from src.idea_vending.intent_planner import build_conservative_intent_context
 
 _FORGE_RESULT_KEYS = {
     "landscape_research",
@@ -73,12 +74,17 @@ def validate_and_run_forge_import(
     validate_forge_bridge_result(result)
 
     retrieved_date = _retrieved_date_from_now(now_provider)
+    intent_context = build_conservative_intent_context(raw_idea)
     research = BridgeResearchReplay(
         result,
         session_id=session_id,
         retrieved_date_provider=lambda: retrieved_date,
     )
-    ideation = BridgeIdeationReplay(result, research)
+    ideation = BridgeIdeationReplay(
+        result,
+        research,
+        intent_context=intent_context,
+    )
     forge = run_forge_phase(
         raw_idea,
         research_provider=research,
@@ -89,6 +95,10 @@ def validate_and_run_forge_import(
         raise ValueError("bridge_forge_cannot_set_decision")
     if len(forge.get("candidates", [])) != 10:
         raise ValueError("bridge_forge_candidate_coverage_invalid")
+    if forge.get("intent_model") != intent_context["intent_model"]:
+        raise ValueError("bridge_intent_replay_mismatch")
+    if forge.get("research_plan") != intent_context["research_plan"]:
+        raise ValueError("bridge_research_plan_replay_mismatch")
     return forge
 
 
