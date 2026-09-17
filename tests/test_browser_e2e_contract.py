@@ -16,6 +16,7 @@ class BrowserE2EContractTests(unittest.TestCase):
         self.assertIn("FAIL: Playwright test dependency is required", source)
         self.assertIn("chromium.launch", source)
         for marker in (
+            "BRIDGE_INTENT_CONTEXT",
             "BRIDGE_FORGE_EXPORT",
             "BRIDGE_FORGE_IMPORT",
             "BRIDGE_JUDGE_EXPORT",
