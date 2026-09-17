@@ -13,6 +13,8 @@ from tests.test_intent_planner import VALID_PLAN
 
 
 class IntentRuntimeIdeationProvider(FakeIdeationProvider):
+    supports_intent_planning = True
+
     def __init__(self):
         super().__init__()
         self.requests = []
