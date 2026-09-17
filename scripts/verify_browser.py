@@ -26,6 +26,7 @@ from v04_app import create_server as create_autonomous_server
 SCENARIOS = (
     "BRIDGE_SIMPLE_UX",
     "BRIDGE_FORGE_EXPORT",
+    "BRIDGE_INTENT_CONTEXT",
     "BRIDGE_FORGE_IMPORT",
     "BRIDGE_LOCAL_VALIDATION_SUCCESS",
     "BRIDGE_LOCAL_VALIDATION_ERROR",
@@ -48,6 +49,25 @@ SCENARIOS = (
 )
 
 IDEA_BASE = "고객 문의 반복업무를 예방 자동화하고 증거로 검증하는 운영 시스템"
+FORGE_RESULT_SECTIONS = {
+    "landscape_research",
+    "extract_assumptions",
+    "challenge_assumptions",
+    "propose_reframes",
+    "discover_mechanisms",
+    "forge_candidates",
+    "collision_research",
+}
+RESEARCH_PLAN_CATEGORIES = {
+    "market_customer_demand",
+    "workflow_economics",
+    "alternatives_incumbents",
+    "implementation_feasibility",
+    "data_quality",
+    "regulation_security",
+    "failure_blockers",
+    "adjacent_mechanisms",
+}
 
 
 def fail(message: str) -> None:
@@ -148,10 +168,49 @@ def import_judge(page: Page, judge_package: dict, scenario: str) -> None:
     expect(page.locator("#judge-validation-status")).to_contain_text("검증 완료")
 
 
+def validate_browser_forge_intent_context(forge_package: dict, idea: str) -> None:
+    context = forge_package.get("intent_context")
+    if not isinstance(context, dict):
+        fail("browser Forge package did not expose intent_context")
+    intent = context.get("intent_model")
+    plan = context.get("research_plan")
+    if not isinstance(intent, dict) or intent.get("primary_objective") != idea:
+        fail("browser Forge package did not preserve the exact primary objective")
+    if intent.get("primary_buyer") is not None:
+        fail("browser Forge package invented an unknown primary buyer")
+    unknowns = intent.get("material_unknowns")
+    if not isinstance(unknowns, list) or "primary_buyer" not in unknowns or "success_metrics" not in unknowns:
+        fail("browser Forge package did not preserve material intent unknowns")
+    questions = plan.get("research_questions") if isinstance(plan, dict) else None
+    if not isinstance(questions, dict) or set(questions) != RESEARCH_PLAN_CATEGORIES:
+        fail("browser Forge package research plan did not contain the eight bounded categories")
+    if any(not isinstance(items, list) or not items for items in questions.values()):
+        fail("browser Forge package research plan contained an empty question category")
+    contract = forge_package.get("result_contract")
+    if not isinstance(contract, dict):
+        fail("browser Forge package result_contract was missing")
+    required = contract.get("required_top_level_keys")
+    schemas = contract.get("section_schemas")
+    if (
+        not isinstance(required, list)
+        or len(required) != 7
+        or set(required) != FORGE_RESULT_SECTIONS
+        or not isinstance(schemas, dict)
+        or set(schemas) != FORGE_RESULT_SECTIONS
+    ):
+        fail("intent-aware browser Forge package changed the seven-section result authority")
+    instruction = forge_package.get("chatgpt_instruction")
+    if not isinstance(instruction, str) or idea not in instruction or "intent_context.research_plan" not in instruction:
+        fail("browser Forge instruction was not driven by the supplied intent context")
+
+
 def scenario_go_round_trip(page: Page, base_url: str) -> None:
-    forge_package = start_bridge(page, base_url, f"GO {IDEA_BASE} 원안 유지 검증")
+    idea = f"GO {IDEA_BASE} 원안 유지 검증"
+    forge_package = start_bridge(page, base_url, idea)
     print("PASS: BRIDGE_SIMPLE_UX")
     expect(page.locator("#forge-package")).to_contain_text('"candidate_count": 10')
+    validate_browser_forge_intent_context(forge_package, idea)
+    print("PASS: BRIDGE_INTENT_CONTEXT")
     page.locator("#copy-forge-prompt").click()
     expect(page.locator("#status")).to_contain_text("복사했습니다")
     copied = page.evaluate("navigator.clipboard.readText()")
