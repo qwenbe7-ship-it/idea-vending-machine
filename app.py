@@ -26,6 +26,14 @@ from src.idea_vending.bridge_http import BridgeValidationHTTPMixin
 from src.idea_vending.bridge_store import BridgeStore
 
 
+# Add the focused validation-UX asset without rewriting the verified legacy
+# static-file handler. The inherited CSP still serves this same-origin script.
+_legacy_app._STATIC_FILES["/bridge_validation.js"] = (
+    "bridge_validation.js",
+    "application/javascript; charset=utf-8",
+)
+
+
 class IdeaVendingHandler(BridgeValidationHTTPMixin, _legacy_app.IdeaVendingHandler):
     """Existing HTTP handler plus safe, actionable Bridge validation responses."""
 
