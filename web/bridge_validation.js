@@ -100,8 +100,7 @@ postJson = async function postJsonWithBridgeValidation(path, data) {
   try {
     const payload = await originalBridgePostJson(path, data);
     if (kind === 'forge') {
-      const count = Number.isInteger(payload?.candidate_count) ? payload.candidate_count : 10;
-      renderBridgeValidation('forge', 'success', `검증 완료 · ${count}개 후보`);
+      renderBridgeValidation('forge', 'success', '검증 완료 · 10개 후보');
       activeBridgeValidationKind = null;
     } else if (kind === 'judge') {
       renderBridgeValidation('judge', 'success', '검증 완료 · 공식 판단 생성');
