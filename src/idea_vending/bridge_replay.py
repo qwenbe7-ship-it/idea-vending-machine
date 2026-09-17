@@ -10,6 +10,8 @@ from typing import Any, Callable
 
 from src.idea_vending.candidate_forge import CANDIDATE_FAMILIES
 from src.idea_vending.evidence_graph import create_evidence_record
+from src.idea_vending.intent_model import validate_intent_model
+from src.idea_vending.intent_planner import validate_research_plan
 
 _BRIDGE_REF_RE = re.compile(r"^bc_[A-Za-z0-9_-]{4,64}$")
 _EVIDENCE_DRAFT_KEYS = {
@@ -231,14 +233,50 @@ class BridgeResearchReplay:
 
 
 class BridgeIdeationReplay:
-    def __init__(self, forge_result: dict[str, Any], research_replay: BridgeResearchReplay) -> None:
+    def __init__(
+        self,
+        forge_result: dict[str, Any],
+        research_replay: BridgeResearchReplay,
+        *,
+        intent_context: dict[str, Any] | None = None,
+    ) -> None:
         self._result = deepcopy(forge_result)
         self._research = research_replay
+        self._intent_context: dict[str, Any] | None = None
+        if intent_context is not None:
+            if not isinstance(intent_context, dict) or set(intent_context) != {"intent_model", "research_plan"}:
+                raise ValueError("bridge_intent_context_invalid")
+            self._intent_context = {
+                "intent_model": validate_intent_model(intent_context["intent_model"]),
+                "research_plan": validate_research_plan(intent_context["research_plan"]),
+            }
         self.last_run_metadata: dict[str, Any] | None = None
         self._sequence = 0
 
+    @property
+    def supports_intent_planning(self) -> bool:
+        return self._intent_context is not None
+
+    def _set_metadata(self, operation: str, *, server_derived: bool = False) -> None:
+        self._sequence += 1
+        self.last_run_metadata = {
+            "provider": "bridge_server_intent" if server_derived else "chatgpt_plus_bridge",
+            "provider_response_id": f"bridge_ideation_{self._sequence}",
+            "model": "deterministic" if server_derived else "user_chatgpt_plus",
+            "operation": operation,
+            "usage": {},
+            "source_count": None,
+        }
+
     def generate(self, request: dict[str, Any]) -> dict[str, Any]:
         operation = request.get("operation")
+        if operation in {"interpret_intent", "plan_research"}:
+            if self._intent_context is None:
+                raise ValueError("bridge_intent_context_unavailable")
+            self._set_metadata(operation, server_derived=True)
+            key = "intent_model" if operation == "interpret_intent" else "research_plan"
+            return deepcopy(self._intent_context[key])
+
         if operation not in {
             "extract_assumptions",
             "challenge_assumptions",
@@ -257,15 +295,7 @@ class BridgeIdeationReplay:
                 raise ValueError("bridge_candidates_invalid")
             families = [item.get("family") for item in candidates if isinstance(item, dict)]
             self._research.set_candidate_family_order(families)
-        self._sequence += 1
-        self.last_run_metadata = {
-            "provider": "chatgpt_plus_bridge",
-            "provider_response_id": f"bridge_ideation_{self._sequence}",
-            "model": "user_chatgpt_plus",
-            "operation": operation,
-            "usage": {},
-            "source_count": None,
-        }
+        self._set_metadata(operation)
         return remapped
 
 
