@@ -5,6 +5,11 @@ symbols are re-exported so existing tests and integrations that import ``app``
 keep working. Additive Bridge validation behavior is layered here rather than
 rewriting the verified legacy server, while executing ``python app.py`` still
 launches the v0.4 autonomous entrypoint used in production.
+
+Security note: the inherited legacy handler remains authoritative for response
+headers, including the ``Content-Security-Policy`` contract. Keeping that
+contract explicit here prevents the production entrypoint from silently drifting
+away from the verified security boundary while avoiding duplicate header logic.
 """
 
 from __future__ import annotations
