@@ -22,6 +22,8 @@ class IdeationContractTests(unittest.TestCase):
         self.assertEqual(
             IDEATION_OPERATIONS,
             {
+                "interpret_intent",
+                "plan_research",
                 "extract_assumptions",
                 "challenge_assumptions",
                 "propose_reframes",
