@@ -137,6 +137,16 @@ class BridgeForgeTests(unittest.TestCase):
                     now_provider=lambda: NOW,
                 )
 
+    def test_forward_collision_claim_reference_is_rejected_precisely(self):
+        result = valid_forge_result()
+        result["forge_candidates"]["candidates"][0]["evidence_claim_ids"] = ["bc_prior01"]
+        with self.assertRaisesRegex(ValueError, "bridge_claim_reference_unknown"):
+            validate_and_run_forge_import(
+                {"bridge_session_id": SESSION_ID, "raw_idea": IDEA, "state": "forge_requested"},
+                {"bridge_session_id": SESSION_ID, "bridge_version": BRIDGE_VERSION, "result": result},
+                now_provider=lambda: NOW,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
