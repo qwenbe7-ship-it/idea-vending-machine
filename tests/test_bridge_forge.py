@@ -51,6 +51,10 @@ def valid_forge_result():
         operations[operation] = fake.generate(
             {"operation": operation, "evidence_summary": evidence_summary}
         )
+    family_order = {family: index for index, family in enumerate(sorted(CANDIDATE_FAMILIES))}
+    operations["forge_candidates"]["candidates"].sort(
+        key=lambda candidate: family_order[candidate["family"]]
+    )
     return {
         "landscape_research": [
             evidence_draft("bc_support01", "market_status", "supports"),
