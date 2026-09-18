@@ -123,6 +123,17 @@ function resetBridge() {
   setText('#judge-state', '대기');
 }
 
+ideaInput.addEventListener('input', () => {
+  if (
+    currentForgePackage
+    && typeof currentForgePackage.raw_idea === 'string'
+    && currentForgePackage.raw_idea !== ideaInput.value
+  ) {
+    resetBridge();
+    status.textContent = '아이디어가 변경되었습니다. 이전 Bridge 세션을 닫았습니다. 새 분석을 시작하세요.';
+  }
+});
+
 function prettyJson(value) {
   return JSON.stringify(value, null, 2);
 }
