@@ -97,6 +97,7 @@
     enable.type = 'button';
     enable.addEventListener('click', () => {
       bridgeFallbackEnabled = true;
+      if (typeof resetBridge === 'function') resetBridge();
       submitButton.textContent = 'Bridge로 분석 시작';
       submitButton.setAttribute('aria-label', 'ChatGPT Plus로 분석');
       statusNode.textContent = 'Bridge fallback을 선택했습니다. 아이디어를 확인한 뒤 분석 시작을 누르세요.';
