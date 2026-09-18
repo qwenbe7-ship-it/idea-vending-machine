@@ -32,12 +32,10 @@ from src.idea_vending.openai_provider import (
     _stable_digest,
     _strict_format,
 )
+from src.idea_vending.provider_transport import GROQ_RESPONSES_URL
 from src.idea_vending.research_engine import validate_research_request
-
-
-GROQ_RESPONSES_URL = "https://api.groq.com/openai/v1/responses"
 DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
-_URL_RE = re.compile(r"https?://[^\s<>{}\[\]"']+")
+_URL_RE = re.compile(r"https?://[^\\s<>{}\\[\\]]+")
 
 
 @dataclass(frozen=True)
