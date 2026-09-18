@@ -20,7 +20,7 @@ _VALIDATION_ERRORS: dict[str, dict[str, Any]] = {
         "actual_summary": None,
         "repair_instruction": (
             "‘ChatGPT에서 계속하기’를 눌러 새 ChatGPT 대화에 복사된 내용을 붙여넣고 실행한 뒤, "
-            "ChatGPT가 마지막에 반환한 JSON object만 결과 칸에 붙여넣으세요."
+            "ChatGPT가 최종으로 반환한 JSON object만 결과 칸에 붙여넣으세요."
         ),
     },
     "bridge_judge_package_pasted_as_result": {
