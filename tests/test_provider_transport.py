@@ -69,6 +69,27 @@ class ProviderTransportTests(unittest.TestCase):
             {"model": "gpt-5.6-terra", "input": "hello"},
         )
 
+    def test_allows_only_known_responses_endpoints(self):
+        groq_url = "https://api.groq.com/openai/v1/responses"
+        opener = RecordingOpener(FakeResponse(b'{"id":"resp_groq","status":"completed"}'))
+        transport = ResponsesTransport(
+            "gsk-test-secret",
+            7.5,
+            opener=opener,
+            responses_url=groq_url,
+        )
+        result = transport.post_json({"model": "openai/gpt-oss-120b", "input": "hello"})
+        self.assertEqual(result["id"], "resp_groq")
+        self.assertEqual(opener.requests[0][0].full_url, groq_url)
+
+        with self.assertRaisesRegex(ValueError, "responses_url"):
+            ResponsesTransport(
+                "secret",
+                5.0,
+                opener=opener,
+                responses_url="https://evil.example/v1/responses",
+            )
+
     def test_401_and_403_are_normalized_as_auth_failure_without_secret(self):
         for status in (401, 403):
             error = HTTPError(OPENAI_RESPONSES_URL, status, "denied sk-test-secret", {}, io.BytesIO(b""))
