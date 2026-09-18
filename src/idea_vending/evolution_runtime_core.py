@@ -37,6 +37,7 @@ from src.idea_vending.mechanism_transfer import create_mechanism_transfer
 from src.idea_vending.openai_provider import ProviderSchemaMismatch
 from src.idea_vending.provider_transport import (
     ProviderAuthFailed,
+    ProviderPermissionDenied,
     ProviderHTTPError,
     ProviderInvalidJSON,
     ProviderNotConfigured,
@@ -67,6 +68,7 @@ from src.idea_vending.runtime_schema import (
 _PROVIDER_FAILURES = {
     ProviderNotConfigured: "provider_not_configured",
     ProviderAuthFailed: "provider_auth_failed",
+    ProviderPermissionDenied: "provider_permission_denied",
     ProviderRateLimited: "provider_rate_limited",
     ProviderTimeout: "provider_timeout",
     ProviderHTTPError: "provider_http_error",
