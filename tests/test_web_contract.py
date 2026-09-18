@@ -117,6 +117,22 @@ class WebContractTests(unittest.TestCase):
         for forbidden in ("innerHTML", "outerHTML", "document.write(", "eval(", "new Function("):
             self.assertNotIn(forbidden, source)
 
+    def test_changed_idea_invalidates_stale_bridge_before_new_fallback_run(self):
+        source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+        autonomous = (ROOT / "web" / "v04.js").read_text(encoding="utf-8")
+        self.assertIn("ideaInput.addEventListener('input'", source)
+        self.assertIn("currentForgePackage.raw_idea", source)
+        self.assertIn("resetBridge()", source)
+        self.assertIn("resetBridge()", autonomous)
+        self.assertIn("새 분석을 시작", source)
+
+    def test_forge_ui_distinguishes_execution_package_from_returned_result(self):
+        html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("① ChatGPT에서 Forge 실행", html)
+        self.assertIn("② ChatGPT가 생성한 최종 JSON만 붙여넣기", html)
+        self.assertIn("실행용 패키지 JSON을 이 칸에 붙이지 마세요", html)
+        self.assertIn("③ 결과 검증하고 계속", html)
+
     def test_runtime_and_reality_evaluation_are_rendered_from_server_payload(self):
         source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
         for expected in (
