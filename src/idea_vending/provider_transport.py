@@ -26,6 +26,10 @@ class ProviderAuthFailed(ProviderTransportError):
     pass
 
 
+class ProviderPermissionDenied(ProviderTransportError):
+    pass
+
+
 class ProviderRateLimited(ProviderTransportError):
     pass
 
@@ -98,8 +102,10 @@ class ResponsesTransport:
             with self._opener(request, timeout=self._timeout_seconds) as response:
                 raw = response.read(self._max_response_bytes + 1)
         except HTTPError as exc:
-            if exc.code in {401, 403}:
+            if exc.code == 401:
                 raise ProviderAuthFailed("provider authentication failed") from None
+            if exc.code == 403:
+                raise ProviderPermissionDenied("provider permission denied") from None
             if exc.code == 429:
                 raise ProviderRateLimited("provider rate limit exceeded") from None
             raise ProviderHTTPError(exc.code) from None
