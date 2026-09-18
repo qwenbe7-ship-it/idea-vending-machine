@@ -194,6 +194,23 @@ class BridgeHTTPTests(unittest.TestCase):
         self.assertEqual(status, 413)
         self.assertEqual(payload["error"], "request_too_large_or_empty")
 
+    def test_forge_execution_package_paste_returns_safe_actionable_error(self):
+        server = self.start_server()
+        forge = self.forge_request(server)
+        envelope = {
+            "bridge_session_id": forge["bridge_session_id"],
+            "bridge_version": BRIDGE_VERSION,
+            "result": forge["package"],
+        }
+
+        status, payload = self.request(server, "/api/bridge/forge-import", envelope)
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"], "bridge_import_invalid")
+        error = payload["validation_error"]
+        self.assertEqual(error["code"], "bridge_forge_package_pasted_as_result")
+        self.assertIn("최종", error["repair_instruction"])
+        self.assertNotIn(IDEA, json.dumps(payload, ensure_ascii=False))
+
     def test_forge_invalid_publication_date_returns_safe_actionable_error(self):
         server = self.start_server()
         forge = self.forge_request(server)
