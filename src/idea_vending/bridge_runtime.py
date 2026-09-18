@@ -32,7 +32,23 @@ _FORGE_RESULT_KEYS = {
 _JUDGE_RESULT_KEYS = {"critiques", "additional_evidence"}
 
 
+def _execution_package_error(value: Any) -> str | None:
+    """Recognize a Bridge execution package accidentally pasted into a result slot."""
+    if not isinstance(value, dict):
+        return None
+    request_type = value.get("request_type")
+    if request_type == "forge" and "result_contract" in value and "chatgpt_instruction" in value:
+        return "bridge_forge_package_pasted_as_result"
+    if request_type == "judge" and "result_contract" in value and "chatgpt_instruction" in value:
+        return "bridge_judge_package_pasted_as_result"
+    return None
+
+
 def bridge_payload_digest(envelope: dict[str, Any]) -> str:
+    if isinstance(envelope, dict):
+        package_error = _execution_package_error(envelope.get("result"))
+        if package_error is not None:
+            raise ValueError(package_error)
     validate_bridge_json(envelope)
     encoded = json.dumps(envelope, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -52,6 +68,10 @@ def validate_and_run_forge_import(
     now_provider: Callable[[], str],
 ) -> ForgeArtifact:
     """Treat Forge output as untrusted provider material and replay it through all existing gates."""
+    if isinstance(envelope, dict):
+        package_error = _execution_package_error(envelope.get("result"))
+        if package_error is not None:
+            raise ValueError(package_error)
     validate_bridge_envelope(envelope)
     if not isinstance(session_record, dict):
         raise ValueError("bridge_session_invalid")
