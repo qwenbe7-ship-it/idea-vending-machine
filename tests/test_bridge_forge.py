@@ -131,6 +131,18 @@ class BridgeForgeTests(unittest.TestCase):
             set(RESEARCH_PLAN_CATEGORIES),
         )
 
+    def test_execution_package_pasted_as_forge_result_is_rejected_precisely(self):
+        package = create_forge_package(IDEA, SESSION_ID, NOW)
+        envelope = {
+            "bridge_session_id": SESSION_ID,
+            "bridge_version": BRIDGE_VERSION,
+            "result": package,
+        }
+        session = {"bridge_session_id": SESSION_ID, "raw_idea": IDEA, "state": "forge_requested"}
+
+        with self.assertRaisesRegex(ValueError, "bridge_forge_package_pasted_as_result"):
+            validate_and_run_forge_import(session, envelope, now_provider=lambda: NOW)
+
     def test_missing_family_and_trusted_id_injection_are_rejected(self):
         for mutate in ("missing_family", "trusted_id"):
             result = valid_forge_result()
