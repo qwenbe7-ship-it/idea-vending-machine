@@ -122,7 +122,7 @@ def start_bridge(page: Page, base_url: str, idea: str) -> dict:
     expect(page.locator("#copy-forge-prompt")).to_be_visible()
     expect(page.locator("#copy-forge-prompt")).to_have_text("ChatGPT에서 계속하기")
     expect(page.locator("#forge-result-input")).to_be_visible()
-    expect(page.locator("#import-forge-result")).to_contain_text("계속")
+    expect(page.locator("#import-forge-result")).to_contain_text("결과 검증")
     expect(page.locator("#copy-forge-json")).to_be_hidden()
     package = hidden_json(page, "#forge-package")
     if package.get("request_type") != "forge" or package.get("bridge_version") != BRIDGE_VERSION:
@@ -140,7 +140,7 @@ def import_forge(page: Page, result: dict | None = None) -> dict:
     expect(page.locator("#forge-validation-status")).to_contain_text("검증 완료 · 10개 후보")
     expect(page.locator("#copy-judge-prompt")).to_have_text("ChatGPT에서 계속하기")
     expect(page.locator("#judge-result-input")).to_be_visible()
-    expect(page.locator("#import-judge-result")).to_contain_text("계속")
+    expect(page.locator("#import-judge-result")).to_contain_text("최종 검증")
     package = hidden_json(page, "#judge-package")
     if package.get("request_type") != "judge" or len(package.get("candidates", [])) != 10:
         fail("Judge package contract was not rendered")
