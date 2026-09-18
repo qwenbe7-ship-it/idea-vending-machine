@@ -7,6 +7,7 @@ from urllib.error import HTTPError
 from src.idea_vending.provider_transport import (
     OPENAI_RESPONSES_URL,
     ProviderAuthFailed,
+    ProviderPermissionDenied,
     ProviderHTTPError,
     ProviderInvalidJSON,
     ProviderNotConfigured,
@@ -90,15 +91,26 @@ class ProviderTransportTests(unittest.TestCase):
                 responses_url="https://evil.example/v1/responses",
             )
 
-    def test_401_and_403_are_normalized_as_auth_failure_without_secret(self):
-        for status in (401, 403):
-            error = HTTPError(OPENAI_RESPONSES_URL, status, "denied sk-test-secret", {}, io.BytesIO(b""))
-            transport = ResponsesTransport(
-                "sk-test-secret", 5.0, opener=RecordingOpener(error=error)
-            )
-            with self.assertRaises(ProviderAuthFailed) as ctx:
-                transport.post_json({"model": "gpt-5.6-terra", "input": "hello"})
-            self.assertNotIn("sk-test-secret", str(ctx.exception))
+    def test_401_is_auth_failure_and_403_is_permission_denied_without_secret(self):
+        auth_error = HTTPError(
+            OPENAI_RESPONSES_URL, 401, "denied sk-test-secret", {}, io.BytesIO(b"")
+        )
+        transport = ResponsesTransport(
+            "sk-test-secret", 5.0, opener=RecordingOpener(error=auth_error)
+        )
+        with self.assertRaises(ProviderAuthFailed) as auth_ctx:
+            transport.post_json({"model": "gpt-5.6-terra", "input": "hello"})
+        self.assertNotIn("sk-test-secret", str(auth_ctx.exception))
+
+        permission_error = HTTPError(
+            OPENAI_RESPONSES_URL, 403, "blocked sk-test-secret", {}, io.BytesIO(b"")
+        )
+        transport = ResponsesTransport(
+            "sk-test-secret", 5.0, opener=RecordingOpener(error=permission_error)
+        )
+        with self.assertRaises(ProviderPermissionDenied) as permission_ctx:
+            transport.post_json({"model": "openai/gpt-oss-120b", "input": "hello"})
+        self.assertNotIn("sk-test-secret", str(permission_ctx.exception))
 
     def test_429_is_rate_limit_and_other_http_status_is_generic_http_error(self):
         rate_error = HTTPError(OPENAI_RESPONSES_URL, 429, "rate", {}, io.BytesIO(b""))
