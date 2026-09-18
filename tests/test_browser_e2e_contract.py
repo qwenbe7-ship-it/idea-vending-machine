@@ -42,6 +42,7 @@ class BrowserE2EContractTests(unittest.TestCase):
             "AUTO_GO_APPROVAL",
             "AUTO_HOLD_BLOCKED",
             "AUTO_PROVIDER_NOT_CONFIGURED_FALLBACK",
+            "AUTO_STALE_BRIDGE_INVALIDATED",
         ):
             self.assertIn(marker, source)
         self.assertIn("create_autonomous_server", source)
