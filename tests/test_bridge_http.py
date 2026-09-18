@@ -211,6 +211,33 @@ class BridgeHTTPTests(unittest.TestCase):
         self.assertIn("최종", error["repair_instruction"])
         self.assertNotIn(IDEA, json.dumps(payload, ensure_ascii=False))
 
+    def test_common_forge_contract_failures_always_return_actionable_error(self):
+        server = self.start_server()
+        forge = self.forge_request(server)
+
+        extra_top_level = valid_forge_result()
+        extra_top_level["analysis_summary"] = {"unexpected": True}
+
+        wrong_family_order = valid_forge_result()
+        candidates = wrong_family_order["forge_candidates"]["candidates"]
+        candidates[0], candidates[1] = candidates[1], candidates[0]
+
+        for result, expected_code in (
+            (extra_top_level, "bridge_forge_result_invalid"),
+            (wrong_family_order, "bridge_candidate_family_order_invalid"),
+        ):
+            envelope = {
+                "bridge_session_id": forge["bridge_session_id"],
+                "bridge_version": BRIDGE_VERSION,
+                "result": result,
+            }
+            status, payload = self.request(server, "/api/bridge/forge-import", envelope)
+            self.assertEqual(status, 400)
+            self.assertEqual(payload["error"], "bridge_import_invalid")
+            self.assertIn("validation_error", payload)
+            self.assertEqual(payload["validation_error"]["code"], expected_code)
+            self.assertTrue(payload["validation_error"]["repair_instruction"])
+
     def test_forge_invalid_publication_date_returns_safe_actionable_error(self):
         server = self.start_server()
         forge = self.forge_request(server)
