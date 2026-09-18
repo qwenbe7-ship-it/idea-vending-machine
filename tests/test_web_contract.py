@@ -133,6 +133,14 @@ class WebContractTests(unittest.TestCase):
         self.assertIn("실행용 패키지 JSON을 이 칸에 붙이지 마세요", html)
         self.assertIn("③ 결과 검증하고 계속", html)
 
+    def test_runtime_failure_guidance_distinguishes_groq_auth_and_permission(self):
+        source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("provider_auth_failed", source)
+        self.assertIn("Groq API 인증에 실패", source)
+        self.assertIn("provider_permission_denied", source)
+        self.assertIn("openai/gpt-oss-120b", source)
+        self.assertIn("provider_rate_limited", source)
+
     def test_runtime_and_reality_evaluation_are_rendered_from_server_payload(self):
         source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
         for expected in (
