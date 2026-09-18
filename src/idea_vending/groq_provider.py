@@ -15,7 +15,6 @@ schemas while recording Groq as the provider.
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 from urllib.parse import urlparse
@@ -35,7 +34,6 @@ from src.idea_vending.openai_provider import (
 from src.idea_vending.provider_transport import GROQ_RESPONSES_URL
 from src.idea_vending.research_engine import validate_research_request
 DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
-_URL_RE = re.compile(r"https?://[^\\s<>{}\\[\\]]+")
 
 
 @dataclass(frozen=True)
@@ -100,8 +98,8 @@ def _extract_output_text(response: dict[str, Any]) -> str:
 
 def _urls_from_browser_dossier(text: str) -> set[str]:
     urls: set[str] = set()
-    for raw in _URL_RE.findall(text):
-        candidate = raw.rstrip(".,;:!?)")
+    for raw in text.split():
+        candidate = raw.strip("()[]{}<>\\\"'.,;:!?")
         parsed = urlparse(candidate)
         if parsed.scheme in {"http", "https"} and parsed.netloc:
             urls.add(candidate)
