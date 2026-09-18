@@ -12,6 +12,28 @@ from typing import Any
 
 
 _VALIDATION_ERRORS: dict[str, dict[str, Any]] = {
+    "bridge_forge_package_pasted_as_result": {
+        "code": "bridge_forge_package_pasted_as_result",
+        "path": None,
+        "message": "실행용 Forge 패키지를 ChatGPT 결과 칸에 붙여넣었습니다.",
+        "expected_rule": "Paste only the final seven-section JSON object returned by ChatGPT after running the Forge prompt",
+        "actual_summary": None,
+        "repair_instruction": (
+            "‘ChatGPT에서 계속하기’를 눌러 새 ChatGPT 대화에 복사된 내용을 붙여넣고 실행한 뒤, "
+            "ChatGPT가 마지막에 반환한 JSON object만 결과 칸에 붙여넣으세요."
+        ),
+    },
+    "bridge_judge_package_pasted_as_result": {
+        "code": "bridge_judge_package_pasted_as_result",
+        "path": None,
+        "message": "실행용 Judge 패키지를 독립 검증 결과 칸에 붙여넣었습니다.",
+        "expected_rule": "Paste only the final Judge JSON object returned by the separate ChatGPT conversation",
+        "actual_summary": None,
+        "repair_instruction": (
+            "Judge의 ‘ChatGPT에서 계속하기’를 눌러 별도의 새 ChatGPT 대화에서 실행한 뒤, "
+            "그 대화가 반환한 최종 JSON object만 결과 칸에 붙여넣으세요."
+        ),
+    },
     "bridge_publication_date_invalid": {
         "code": "bridge_publication_date_invalid",
         "path": None,
