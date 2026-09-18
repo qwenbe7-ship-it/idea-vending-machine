@@ -26,6 +26,7 @@ PROVIDER_RUN_STATUSES = {"completed", "incomplete", "failed"}
 FAILURE_CODES = {
     "provider_not_configured",
     "provider_auth_failed",
+    "provider_permission_denied",
     "provider_rate_limited",
     "provider_timeout",
     "provider_http_error",

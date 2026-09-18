@@ -123,6 +123,17 @@ function resetBridge() {
   setText('#judge-state', '대기');
 }
 
+ideaInput.addEventListener('input', () => {
+  if (
+    currentForgePackage
+    && typeof currentForgePackage.raw_idea === 'string'
+    && currentForgePackage.raw_idea !== ideaInput.value
+  ) {
+    resetBridge();
+    status.textContent = '아이디어가 변경되었습니다. 이전 Bridge 세션을 닫았습니다. 새 분석을 시작하세요.';
+  }
+});
+
 function prettyJson(value) {
   return JSON.stringify(value, null, 2);
 }
@@ -276,6 +287,13 @@ async function refreshReadiness() {
   }
 }
 
+const RUNTIME_FAILURE_GUIDANCE = {
+  provider_auth_failed: 'Groq API 인증에 실패했습니다. GROQ_API_KEY가 현재 Groq 프로젝트에서 발급된 유효한 키인지 확인하고 필요하면 새 키로 교체하세요.',
+  provider_permission_denied: 'Groq에서 모델 사용 권한이 거부됐습니다. Groq Console의 Organization / Project Limits에서 openai/gpt-oss-120b 사용이 허용되어 있는지 확인하세요.',
+  provider_rate_limited: 'Groq 사용 한도에 도달했습니다. 프로젝트의 Rate Limits 또는 사용량을 확인한 뒤 다시 실행하세요.',
+  provider_timeout: 'Groq 응답 시간이 초과되었습니다. 잠시 후 다시 실행하세요.',
+};
+
 function renderRuntime(runtime) {
   const events = document.querySelector('#runtime-events');
   const failure = document.querySelector('#runtime-failure');
@@ -295,7 +313,12 @@ function renderRuntime(runtime) {
     events.appendChild(item);
   }
   if (runtime?.failure) {
-    failure.textContent = `운영 상태: ${runtime.failure.code} · 단계: ${STAGE_LABELS[runtime.failure.stage] || runtime.failure.stage}`;
+    const code = runtime.failure.code;
+    const stage = STAGE_LABELS[runtime.failure.stage] || runtime.failure.stage;
+    const guidance = RUNTIME_FAILURE_GUIDANCE[code];
+    failure.textContent = guidance
+      ? `운영 상태: ${code} · 단계: ${stage} · ${guidance}`
+      : `운영 상태: ${code} · 단계: ${stage}`;
     failure.hidden = false;
   }
 }

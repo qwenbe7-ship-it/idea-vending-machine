@@ -194,6 +194,98 @@ class BridgeHTTPTests(unittest.TestCase):
         self.assertEqual(status, 413)
         self.assertEqual(payload["error"], "request_too_large_or_empty")
 
+    def test_forge_execution_package_paste_returns_safe_actionable_error(self):
+        server = self.start_server()
+        forge = self.forge_request(server)
+        envelope = {
+            "bridge_session_id": forge["bridge_session_id"],
+            "bridge_version": BRIDGE_VERSION,
+            "result": forge["package"],
+        }
+
+        status, payload = self.request(server, "/api/bridge/forge-import", envelope)
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"], "bridge_import_invalid")
+        error = payload["validation_error"]
+        self.assertEqual(error["code"], "bridge_forge_package_pasted_as_result")
+        self.assertIn("최종", error["repair_instruction"])
+        self.assertNotIn(IDEA, json.dumps(payload, ensure_ascii=False))
+
+    def test_common_forge_contract_failures_always_return_actionable_error(self):
+        server = self.start_server()
+        forge = self.forge_request(server)
+
+        extra_top_level = valid_forge_result()
+        extra_top_level["analysis_summary"] = {"unexpected": True}
+
+        wrong_family_order = valid_forge_result()
+        candidates = wrong_family_order["forge_candidates"]["candidates"]
+        candidates[0], candidates[1] = candidates[1], candidates[0]
+
+        for result, expected_code in (
+            (extra_top_level, "bridge_forge_result_invalid"),
+            (wrong_family_order, "bridge_candidate_family_order_invalid"),
+        ):
+            envelope = {
+                "bridge_session_id": forge["bridge_session_id"],
+                "bridge_version": BRIDGE_VERSION,
+                "result": result,
+            }
+            status, payload = self.request(server, "/api/bridge/forge-import", envelope)
+            self.assertEqual(status, 400)
+            self.assertEqual(payload["error"], "bridge_import_invalid")
+            self.assertIn("validation_error", payload)
+            self.assertEqual(payload["validation_error"]["code"], expected_code)
+            self.assertTrue(payload["validation_error"]["repair_instruction"])
+
+    def test_forge_invalid_publication_date_returns_safe_actionable_error(self):
+        server = self.start_server()
+        forge = self.forge_request(server)
+        result = valid_forge_result()
+        secret_marker = "DO_NOT_ECHO_SECRET_PAYLOAD"
+        result["landscape_research"][0]["publication_date"] = "Undated; accessed 2026-09-17"
+        result["landscape_research"][0]["raw_excerpt"] = secret_marker
+        envelope = {
+            "bridge_session_id": forge["bridge_session_id"],
+            "bridge_version": BRIDGE_VERSION,
+            "result": result,
+        }
+
+        status, payload = self.request(server, "/api/bridge/forge-import", envelope)
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"], "bridge_import_invalid")
+        error = payload["validation_error"]
+        self.assertEqual(error["code"], "bridge_publication_date_invalid")
+        self.assertEqual(error["expected_rule"], "YYYY-MM-DD")
+        self.assertIn("publication_date", error["message"])
+        self.assertTrue(error["repair_instruction"])
+        serialized = json.dumps(payload, ensure_ascii=False)
+        self.assertNotIn(secret_marker, serialized)
+        self.assertNotIn("Traceback", serialized)
+        self.assertNotIn("OPENAI_API_KEY", serialized)
+
+    def test_forge_unknown_claim_reference_returns_safe_actionable_error(self):
+        server = self.start_server()
+        forge = self.forge_request(server)
+        result = valid_forge_result()
+        result["forge_candidates"]["candidates"][0]["evidence_claim_ids"] = ["bc_prior01"]
+        envelope = {
+            "bridge_session_id": forge["bridge_session_id"],
+            "bridge_version": BRIDGE_VERSION,
+            "result": result,
+        }
+
+        status, payload = self.request(server, "/api/bridge/forge-import", envelope)
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"], "bridge_import_invalid")
+        error = payload["validation_error"]
+        self.assertEqual(error["code"], "bridge_claim_reference_unknown")
+        self.assertIn("landscape_research", error["expected_rule"])
+        self.assertTrue(error["repair_instruction"])
+        serialized = json.dumps(payload, ensure_ascii=False)
+        self.assertNotIn("Traceback", serialized)
+        self.assertNotIn("bc_prior01", serialized)
+
     def test_api_mode_remains_unconfigured_without_key_even_when_bridge_is_ready(self):
         server = self.start_server()
         status, payload = self.request(server, "/api/evolve", {"idea": IDEA})

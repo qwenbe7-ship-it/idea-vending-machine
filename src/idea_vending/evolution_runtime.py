@@ -3,7 +3,9 @@
 The core runtime remains byte-identical to the verified E1 implementation. This
 module captures the already-produced independent evaluator output and derives
 per-candidate Reality Assessments deterministically without a second provider
-call or any provider-controlled verdict.
+call or any provider-controlled verdict. Intent-aware providers are additionally
+wrapped here so intent interpretation and bounded research planning happen before
+landscape research without rewriting the stable deterministic core.
 """
 
 from __future__ import annotations
@@ -17,7 +19,15 @@ from src.idea_vending import evolution_schema_core as _schema_core
 from src.idea_vending.analyzer import analyze_idea
 from src.idea_vending.candidate_forge import CANDIDATE_FAMILIES
 from src.idea_vending.evolution_schema import validate_complete_report as _validate_e2a_complete_report
+from src.idea_vending.ideation_contract import run_ideation_operation
 from src.idea_vending.independent_evaluator import ingest_evaluator_output
+from src.idea_vending.intent_model import validate_intent_model
+from src.idea_vending.intent_planner import (
+    build_intent_request,
+    build_research_plan_request,
+    flatten_research_questions,
+    validate_research_plan,
+)
 from src.idea_vending.provider_transport import ProviderTimeout
 from src.idea_vending.reality_evaluation import derive_reality_assessment
 
@@ -26,6 +36,21 @@ from src.idea_vending.reality_evaluation import derive_reality_assessment
 for _name in dir(_core):
     if not _name.startswith("__") and _name not in globals():
         globals()[_name] = getattr(_core, _name)
+
+
+_CORE_IDEATION_OPERATIONS = {
+    "extract_assumptions",
+    "challenge_assumptions",
+    "propose_reframes",
+    "discover_mechanisms",
+    "forge_candidates",
+}
+_COLLISION_PLAN_CATEGORIES = (
+    "alternatives_incumbents",
+    "implementation_feasibility",
+    "regulation_security",
+    "failure_blockers",
+)
 
 
 def _legacy_state(state: dict[str, Any]) -> dict[str, Any]:
@@ -68,11 +93,102 @@ _core.validate_complete_report = _validate_core_report_phase
 _core.validate_state_evidence_against_graph = _validate_core_state_evidence_phase
 
 
-class _E2AIdeationProvider:
-    """Strengthen only the candidate-forge request before it reaches the provider."""
+def _supports_intent_planning(provider: Any) -> bool:
+    """Return whether an ideation provider can execute the two new operations.
 
-    def __init__(self, delegate: Any) -> None:
+    Providers may opt in explicitly. The currently shipped OpenAI adapter already
+    accepts the generic structured ideation envelope, so it is recognized here
+    while older injected test/legacy providers keep their verified behavior.
+    """
+    explicit = getattr(provider, "supports_intent_planning", None)
+    if explicit is not None:
+        return explicit is True
+    provider_type = type(provider)
+    return (
+        provider_type.__module__ == "src.idea_vending.openai_provider"
+        and provider_type.__name__ == "OpenAIResponsesProvider"
+    )
+
+
+def _prepare_intent_context(idea: str, ideation_provider: Any) -> dict[str, Any] | None:
+    if not _supports_intent_planning(ideation_provider):
+        return None
+    raw_intent = run_ideation_operation(ideation_provider, build_intent_request(idea))
+    intent = validate_intent_model(raw_intent)
+    raw_plan = run_ideation_operation(
+        ideation_provider,
+        build_research_plan_request(intent),
+    )
+    plan = validate_research_plan(raw_plan)
+    return {
+        "intent_model": intent,
+        "research_plan": plan,
+    }
+
+
+def _intent_research_summary(intent: dict[str, Any]) -> str:
+    def joined(values: Any) -> str:
+        if not isinstance(values, list) or not values:
+            return "unknown"
+        return " | ".join(str(value) for value in values)
+
+    return " ".join(
+        [
+            f"Intent objective: {intent['primary_objective']}",
+            f"Desired outcome: {intent['desired_outcome']}",
+            f"Hard constraints: {joined(intent['hard_constraints'])}",
+            f"Success metrics: {joined(intent['success_metrics'])}",
+            f"Material unknowns: {joined(intent['material_unknowns'])}",
+        ]
+    )
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        if isinstance(value, str) and value.strip() and value not in result:
+            result.append(value)
+    return result
+
+
+class _IntentAwareResearchProvider:
+    """Enrich stable research requests with validated intent and plan questions."""
+
+    def __init__(self, delegate: Any, intent_context: dict[str, Any]) -> None:
         self._delegate = delegate
+        self._context = deepcopy(intent_context)
+
+    @property
+    def last_run_metadata(self) -> Any:
+        return getattr(self._delegate, "last_run_metadata", None)
+
+    def research(self, request: dict[str, Any]) -> dict[str, Any]:
+        forwarded = deepcopy(request)
+        intent = self._context["intent_model"]
+        plan = self._context["research_plan"]
+        summary = _intent_research_summary(intent)
+        if forwarded.get("pass_type") == "collision":
+            planned = flatten_research_questions(
+                plan,
+                categories=_COLLISION_PLAN_CATEGORIES,
+            )
+        else:
+            planned = flatten_research_questions(plan)
+        forwarded["question"] = f"{forwarded['question']} {summary}"
+        forwarded["queries"] = _dedupe_strings([*planned, *forwarded["queries"]])
+        return self._delegate.research(forwarded)
+
+
+class _E2AIdeationProvider:
+    """Strengthen candidate Forge requests and attach validated intent context."""
+
+    def __init__(
+        self,
+        delegate: Any,
+        intent_context: dict[str, Any] | None = None,
+    ) -> None:
+        self._delegate = delegate
+        self._intent_context = deepcopy(intent_context)
 
     @property
     def last_run_metadata(self) -> Any:
@@ -80,6 +196,19 @@ class _E2AIdeationProvider:
 
     def generate(self, request: dict[str, Any]) -> dict[str, Any]:
         forwarded = deepcopy(request)
+        if (
+            self._intent_context is not None
+            and forwarded.get("operation") in _CORE_IDEATION_OPERATIONS
+        ):
+            problem_context = deepcopy(forwarded.get("problem_context", {}))
+            problem_context["intent_model"] = deepcopy(
+                self._intent_context["intent_model"]
+            )
+            problem_context["research_plan"] = deepcopy(
+                self._intent_context["research_plan"]
+            )
+            forwarded["problem_context"] = problem_context
+
         if forwarded.get("operation") == "forge_candidates":
             families = sorted(CANDIDATE_FAMILIES)
             forwarded["objective"] = (
@@ -219,6 +348,32 @@ def _derive_candidate_reality_assessments(
     return assessments, critiques
 
 
+def _intent_wrapped_providers(
+    idea: str,
+    *,
+    research_provider: Any,
+    ideation_provider: Any,
+) -> tuple[dict[str, Any] | None, Any, Any]:
+    intent_context = _prepare_intent_context(idea, ideation_provider)
+    wrapped_research = (
+        _IntentAwareResearchProvider(research_provider, intent_context)
+        if intent_context is not None
+        else research_provider
+    )
+    wrapped_ideation = _E2AIdeationProvider(ideation_provider, intent_context)
+    return intent_context, wrapped_research, wrapped_ideation
+
+
+def _apply_normalized_intent(
+    result: dict[str, Any], intent_context: dict[str, Any] | None
+) -> None:
+    if intent_context is None:
+        return
+    state = result.get("state")
+    if isinstance(state, dict):
+        state["normalized_intent"] = intent_context["intent_model"]["primary_objective"]
+
+
 def run_forge_phase(
     idea: str,
     *,
@@ -228,15 +383,21 @@ def run_forge_phase(
     event_sink: Any = None,
 ) -> ForgeArtifact:
     """Run the verified pipeline through collision research, then stop before Judge execution."""
+    intent_context, wrapped_research, wrapped_ideation = _intent_wrapped_providers(
+        idea,
+        research_provider=research_provider,
+        ideation_provider=ideation_provider,
+    )
     boundary = _ForgeBoundaryEvaluationProvider()
     result = _core.run_evolution(
         idea,
-        research_provider=research_provider,
-        ideation_provider=_E2AIdeationProvider(ideation_provider),
+        research_provider=wrapped_research,
+        ideation_provider=wrapped_ideation,
         evaluation_provider=boundary,
         now_provider=now_provider,
         event_sink=event_sink,
     )
+    _apply_normalized_intent(result, intent_context)
     if boundary.request is None:
         raise ValueError("forge phase did not reach the independent evaluation boundary")
     state = result.get("state")
@@ -253,21 +414,25 @@ def run_forge_phase(
     collision_state = request.get("collision_state")
     if not isinstance(baseline, dict) or not isinstance(feasibility_artifacts, dict) or not isinstance(collision_state, dict):
         raise ValueError("forge phase evaluator boundary is missing trusted context")
+    artifact = {
+        "analysis": analyze_idea(idea),
+        "state": deepcopy(state),
+        "evidence_graph": deepcopy(graph),
+        "runtime": deepcopy(runtime),
+        "baseline": deepcopy(baseline),
+        "assumptions": [],
+        "challenges": [],
+        "transformations": [],
+        "mechanisms": [],
+        "candidates": deepcopy(candidates),
+        "feasibility_artifacts": deepcopy(feasibility_artifacts),
+        "collision_state": deepcopy(collision_state),
+    }
+    if intent_context is not None:
+        artifact["intent_model"] = deepcopy(intent_context["intent_model"])
+        artifact["research_plan"] = deepcopy(intent_context["research_plan"])
     return ForgeArtifact(
-        {
-            "analysis": analyze_idea(idea),
-            "state": deepcopy(state),
-            "evidence_graph": deepcopy(graph),
-            "runtime": deepcopy(runtime),
-            "baseline": deepcopy(baseline),
-            "assumptions": [],
-            "challenges": [],
-            "transformations": [],
-            "mechanisms": [],
-            "candidates": deepcopy(candidates),
-            "feasibility_artifacts": deepcopy(feasibility_artifacts),
-            "collision_state": deepcopy(collision_state),
-        },
+        artifact,
         research_provider=research_provider,
         ideation_provider=ideation_provider,
     )
@@ -296,6 +461,45 @@ def finalize_evolution_from_forge(
     )
 
 
+def _intent_provider_failure_result(
+    idea: str,
+    *,
+    code: str,
+    now_provider: Any,
+    event_sink: Any = None,
+) -> dict[str, Any]:
+    """Preserve the stable runtime contract when pre-core intent capture cannot complete."""
+    analysis = analyze_idea(idea)
+    started_at = now_provider()
+    evolution_id = _core._digest("evo", {"idea": idea})
+    runtime_id = _core._digest(
+        "run", {"evolution_id": evolution_id, "started_at": started_at}
+    )
+    state = _core.create_evolution_state(idea, evolution_id)
+    state["normalized_intent"] = analysis["problem"]
+    _core.validate_evolution_state(state)
+    graph = _core.create_evidence_graph(evolution_id)
+    runtime = _core.create_runtime_record(runtime_id, evolution_id, started_at)
+    _core._emit(
+        runtime,
+        stage="capture",
+        status="started",
+        code="capture_started",
+        now_provider=now_provider,
+        event_sink=event_sink,
+    )
+    return _core._incomplete(
+        runtime,
+        state,
+        graph,
+        [],
+        stage="capture",
+        code=code,
+        now_provider=now_provider,
+        event_sink=event_sink,
+    )
+
+
 def run_evolution(
     idea: str,
     *,
@@ -306,16 +510,32 @@ def run_evolution(
     event_sink: Any = None,
 ) -> dict[str, Any]:
     """Run E1 and attach ten deterministic E2A Reality Assessments on success."""
-    e2a_ideation_provider = _E2AIdeationProvider(ideation_provider)
+    try:
+        intent_context, wrapped_research, e2a_ideation_provider = _intent_wrapped_providers(
+            idea,
+            research_provider=research_provider,
+            ideation_provider=ideation_provider,
+        )
+    except Exception as exc:
+        failure_code = _core._provider_failure_code(exc)
+        if failure_code is None:
+            raise
+        return _intent_provider_failure_result(
+            idea,
+            code=failure_code,
+            now_provider=now_provider,
+            event_sink=event_sink,
+        )
     capturing_evaluator = _CapturingEvaluationProvider(evaluation_provider)
     result = _core.run_evolution(
         idea,
-        research_provider=research_provider,
+        research_provider=wrapped_research,
         ideation_provider=e2a_ideation_provider,
         evaluation_provider=capturing_evaluator,
         now_provider=now_provider,
         event_sink=event_sink,
     )
+    _apply_normalized_intent(result, intent_context)
 
     if result.get("runtime", {}).get("status") != "completed":
         return result

@@ -13,8 +13,11 @@ class SimpleBridgeUxTests(unittest.TestCase):
         self.assertIn('>분석 시작</button>', html)
         self.assertNotIn('>ChatGPT Plus로 분석</button>', html)
         self.assertEqual(html.count('>ChatGPT에서 계속하기</a>'), 2)
-        self.assertEqual(html.count('<strong>ChatGPT 결과 붙여넣기</strong>'), 2)
-        self.assertEqual(html.count('type="button">계속</button>'), 2)
+        self.assertIn("<strong>① ChatGPT에서 Forge 실행</strong>", html)
+        self.assertIn("<strong>② ChatGPT가 생성한 최종 JSON만 붙여넣기</strong>", html)
+        self.assertIn("<strong>② Judge가 생성한 최종 JSON만 붙여넣기</strong>", html)
+        self.assertIn(">③ 결과 검증하고 계속</button>", html)
+        self.assertIn(">③ 최종 검증하고 판단 생성</button>", html)
         self.assertEqual(html.count('href="https://chatgpt.com/"'), 2)
         self.assertIn('별도의 새 ChatGPT 대화', html)
 

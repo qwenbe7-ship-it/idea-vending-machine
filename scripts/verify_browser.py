@@ -26,7 +26,11 @@ from v04_app import create_server as create_autonomous_server
 SCENARIOS = (
     "BRIDGE_SIMPLE_UX",
     "BRIDGE_FORGE_EXPORT",
+    "BRIDGE_INTENT_CONTEXT",
     "BRIDGE_FORGE_IMPORT",
+    "BRIDGE_LOCAL_VALIDATION_SUCCESS",
+    "BRIDGE_LOCAL_VALIDATION_ERROR",
+    "BRIDGE_PACKAGE_PASTE_REJECTED",
     "BRIDGE_JUDGE_EXPORT",
     "BRIDGE_JUDGE_IMPORT",
     "BRIDGE_GO_APPROVAL",
@@ -43,9 +47,29 @@ SCENARIOS = (
     "AUTO_GO_APPROVAL",
     "AUTO_HOLD_BLOCKED",
     "AUTO_PROVIDER_NOT_CONFIGURED_FALLBACK",
+    "AUTO_STALE_BRIDGE_INVALIDATED",
 )
 
 IDEA_BASE = "고객 문의 반복업무를 예방 자동화하고 증거로 검증하는 운영 시스템"
+FORGE_RESULT_SECTIONS = {
+    "landscape_research",
+    "extract_assumptions",
+    "challenge_assumptions",
+    "propose_reframes",
+    "discover_mechanisms",
+    "forge_candidates",
+    "collision_research",
+}
+RESEARCH_PLAN_CATEGORIES = {
+    "market_customer_demand",
+    "workflow_economics",
+    "alternatives_incumbents",
+    "implementation_feasibility",
+    "data_quality",
+    "regulation_security",
+    "failure_blockers",
+    "adjacent_mechanisms",
+}
 
 
 def fail(message: str) -> None:
@@ -98,7 +122,7 @@ def start_bridge(page: Page, base_url: str, idea: str) -> dict:
     expect(page.locator("#copy-forge-prompt")).to_be_visible()
     expect(page.locator("#copy-forge-prompt")).to_have_text("ChatGPT에서 계속하기")
     expect(page.locator("#forge-result-input")).to_be_visible()
-    expect(page.locator("#import-forge-result")).to_have_text("계속")
+    expect(page.locator("#import-forge-result")).to_contain_text("결과 검증")
     expect(page.locator("#copy-forge-json")).to_be_hidden()
     package = hidden_json(page, "#forge-package")
     if package.get("request_type") != "forge" or package.get("bridge_version") != BRIDGE_VERSION:
@@ -112,9 +136,11 @@ def import_forge(page: Page, result: dict | None = None) -> dict:
     page.locator("#import-forge-result").click()
     expect(page.locator("#judge-step")).to_be_visible(timeout=20000)
     expect(page.locator("#forge-state")).to_contain_text("완료")
+    expect(page.locator("#forge-validation-status")).to_be_visible()
+    expect(page.locator("#forge-validation-status")).to_contain_text("검증 완료 · 10개 후보")
     expect(page.locator("#copy-judge-prompt")).to_have_text("ChatGPT에서 계속하기")
     expect(page.locator("#judge-result-input")).to_be_visible()
-    expect(page.locator("#import-judge-result")).to_have_text("계속")
+    expect(page.locator("#import-judge-result")).to_contain_text("최종 검증")
     package = hidden_json(page, "#judge-package")
     if package.get("request_type") != "judge" or len(package.get("candidates", [])) != 10:
         fail("Judge package contract was not rendered")
@@ -140,12 +166,53 @@ def import_judge(page: Page, judge_package: dict, scenario: str) -> None:
     expect(page.locator("#executive-decision")).to_be_visible(timeout=20000)
     expect(page.locator("#candidate-grid .candidate-card")).to_have_count(10)
     expect(page.locator("#judge-state")).to_contain_text("공식 판단 생성")
+    expect(page.locator("#judge-validation-status")).to_be_visible()
+    expect(page.locator("#judge-validation-status")).to_contain_text("검증 완료")
+
+
+def validate_browser_forge_intent_context(forge_package: dict, idea: str) -> None:
+    context = forge_package.get("intent_context")
+    if not isinstance(context, dict):
+        fail("browser Forge package did not expose intent_context")
+    intent = context.get("intent_model")
+    plan = context.get("research_plan")
+    if not isinstance(intent, dict) or intent.get("primary_objective") != idea:
+        fail("browser Forge package did not preserve the exact primary objective")
+    if intent.get("primary_buyer") is not None:
+        fail("browser Forge package invented an unknown primary buyer")
+    unknowns = intent.get("material_unknowns")
+    if not isinstance(unknowns, list) or "primary_buyer" not in unknowns or "success_metrics" not in unknowns:
+        fail("browser Forge package did not preserve material intent unknowns")
+    questions = plan.get("research_questions") if isinstance(plan, dict) else None
+    if not isinstance(questions, dict) or set(questions) != RESEARCH_PLAN_CATEGORIES:
+        fail("browser Forge package research plan did not contain the eight bounded categories")
+    if any(not isinstance(items, list) or not items for items in questions.values()):
+        fail("browser Forge package research plan contained an empty question category")
+    contract = forge_package.get("result_contract")
+    if not isinstance(contract, dict):
+        fail("browser Forge package result_contract was missing")
+    required = contract.get("required_top_level_keys")
+    schemas = contract.get("section_schemas")
+    if (
+        not isinstance(required, list)
+        or len(required) != 7
+        or set(required) != FORGE_RESULT_SECTIONS
+        or not isinstance(schemas, dict)
+        or set(schemas) != FORGE_RESULT_SECTIONS
+    ):
+        fail("intent-aware browser Forge package changed the seven-section result authority")
+    instruction = forge_package.get("chatgpt_instruction")
+    if not isinstance(instruction, str) or idea not in instruction or "intent_context.research_plan" not in instruction:
+        fail("browser Forge instruction was not driven by the supplied intent context")
 
 
 def scenario_go_round_trip(page: Page, base_url: str) -> None:
-    forge_package = start_bridge(page, base_url, f"GO {IDEA_BASE} 원안 유지 검증")
+    idea = f"GO {IDEA_BASE} 원안 유지 검증"
+    forge_package = start_bridge(page, base_url, idea)
     print("PASS: BRIDGE_SIMPLE_UX")
     expect(page.locator("#forge-package")).to_contain_text('"candidate_count": 10')
+    validate_browser_forge_intent_context(forge_package, idea)
+    print("PASS: BRIDGE_INTENT_CONTEXT")
     page.locator("#copy-forge-prompt").click()
     expect(page.locator("#status")).to_contain_text("복사했습니다")
     copied = page.evaluate("navigator.clipboard.readText()")
@@ -155,6 +222,7 @@ def scenario_go_round_trip(page: Page, base_url: str) -> None:
 
     judge_package = import_forge(page)
     print("PASS: BRIDGE_FORGE_IMPORT")
+    print("PASS: BRIDGE_LOCAL_VALIDATION_SUCCESS")
     expect(page.locator("#judge-step")).to_contain_text("별도의 새 ChatGPT 대화")
     print("PASS: BRIDGE_JUDGE_EXPORT")
 
@@ -206,6 +274,33 @@ def scenario_kill(page: Page, base_url: str) -> None:
     expect(page.locator("#approval-guidance")).to_contain_text("KILL")
     expect(page.locator("#package")).to_be_hidden()
     print("PASS: BRIDGE_KILL_BLOCKED")
+
+
+def scenario_local_validation_error(page: Page, base_url: str) -> None:
+    start_bridge(page, base_url, f"LOCAL ERROR {IDEA_BASE}")
+    invalid = valid_forge_result()
+    invalid["landscape_research"][0]["publication_date"] = "date unavailable"
+    page.locator("#forge-result-input").fill(json.dumps(invalid, ensure_ascii=False))
+    page.locator("#import-forge-result").click()
+    local = page.locator("#forge-validation-status")
+    expect(local).to_be_visible(timeout=20000)
+    expect(local).to_have_attribute("data-state", "error")
+    expect(local).to_contain_text("YYYY-MM-DD")
+    expect(page.locator("#judge-step")).to_be_hidden()
+    print("PASS: BRIDGE_LOCAL_VALIDATION_ERROR")
+
+
+def scenario_package_paste_rejected(page: Page, base_url: str) -> None:
+    forge_package = start_bridge(page, base_url, f"PACKAGE PASTE {IDEA_BASE}")
+    page.locator("#forge-result-input").fill(json.dumps(forge_package, ensure_ascii=False))
+    page.locator("#import-forge-result").click()
+    local = page.locator("#forge-validation-status")
+    expect(local).to_be_visible(timeout=20000)
+    expect(local).to_have_attribute("data-state", "error")
+    expect(local).to_contain_text("실행용 Forge 패키지")
+    expect(local).to_contain_text("최종")
+    expect(page.locator("#judge-step")).to_be_hidden()
+    print("PASS: BRIDGE_PACKAGE_PASTE_REJECTED")
 
 
 def scenario_malformed_import(page: Page, base_url: str) -> None:
@@ -336,6 +431,38 @@ def scenario_auto_unconfigured_fallback(page: Page, base_url: str) -> None:
     print("PASS: AUTO_PROVIDER_NOT_CONFIGURED_FALLBACK")
 
 
+def scenario_auto_stale_bridge_invalidated(page: Page, base_url: str) -> None:
+    page.goto(base_url, wait_until="domcontentloaded")
+    old_idea = f"OLD {IDEA_BASE}"
+    new_idea = f"NEW {IDEA_BASE}"
+
+    page.locator("#idea").fill(old_idea)
+    page.get_by_role("button", name="자동 분석 시작").click()
+    expect(page.locator("#status")).to_contain_text(
+        "자동 분석 엔진이 아직 설정되지 않았습니다.", timeout=20000
+    )
+    page.locator("#enable-bridge-fallback").click()
+    expect(page.locator("#bridge-workflow")).to_be_hidden()
+    expect(page.locator("#evolve-submit")).to_have_text("Bridge로 분석 시작")
+    page.locator("#evolve-submit").click()
+    expect(page.locator("#bridge-workflow")).to_be_visible(timeout=20000)
+    old_package = hidden_json(page, "#forge-package")
+    if old_package.get("raw_idea") != old_idea:
+        fail("initial fallback Forge package did not match the submitted idea")
+
+    page.locator("#idea").fill(new_idea)
+    expect(page.locator("#bridge-workflow")).to_be_hidden()
+    expect(page.locator("#status")).to_contain_text("아이디어가 변경되었습니다")
+    page.locator("#evolve-submit").click()
+    expect(page.locator("#bridge-workflow")).to_be_visible(timeout=20000)
+    new_package = hidden_json(page, "#forge-package")
+    if new_package.get("raw_idea") != new_idea:
+        fail("new fallback Forge package reused a stale raw_idea")
+    if new_package.get("bridge_session_id") == old_package.get("bridge_session_id"):
+        fail("new fallback Forge package reused a stale bridge session")
+    print("PASS: AUTO_STALE_BRIDGE_INVALIDATED")
+
+
 def run_bridge_suite(browser) -> None:
     server = thread = None
     try:
@@ -347,6 +474,8 @@ def run_bridge_suite(browser) -> None:
         scenario_modify(page, base_url)
         scenario_hold(page, base_url)
         scenario_kill(page, base_url)
+        scenario_local_validation_error(page, base_url)
+        scenario_package_paste_rejected(page, base_url)
         scenario_malformed_import(page, base_url)
         scenario_wrong_session(page, base_url)
         scenario_xss(page, base_url)
@@ -362,6 +491,7 @@ def run_autonomous_suite(browser) -> None:
         ("go", scenario_auto_go, True),
         ("hold", scenario_auto_hold, False),
         (None, scenario_auto_unconfigured_fallback, False),
+        (None, scenario_auto_stale_bridge_invalidated, False),
     ):
         server = thread = None
         try:

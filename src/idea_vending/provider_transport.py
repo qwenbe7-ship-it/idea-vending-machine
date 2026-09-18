@@ -1,4 +1,4 @@
-"""Bounded stdlib HTTPS transport for OpenAI Responses API calls."""
+"""Bounded stdlib HTTPS transport for trusted OpenAI-compatible Responses APIs."""
 
 from __future__ import annotations
 
@@ -9,6 +9,8 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
+GROQ_RESPONSES_URL = "https://api.groq.com/openai/v1/responses"
+_ALLOWED_RESPONSES_URLS = {OPENAI_RESPONSES_URL, GROQ_RESPONSES_URL}
 DEFAULT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 
@@ -21,6 +23,10 @@ class ProviderNotConfigured(ProviderTransportError):
 
 
 class ProviderAuthFailed(ProviderTransportError):
+    pass
+
+
+class ProviderPermissionDenied(ProviderTransportError):
     pass
 
 
@@ -56,6 +62,7 @@ class ResponsesTransport:
         *,
         opener: Callable[..., Any] | None = None,
         max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+        responses_url: str = OPENAI_RESPONSES_URL,
     ) -> None:
         if not isinstance(api_key, str) or not api_key.strip():
             raise ProviderNotConfigured("provider API key is not configured")
@@ -63,6 +70,8 @@ class ResponsesTransport:
             raise ValueError("timeout_seconds must be a positive number")
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be a positive number")
+        if responses_url not in _ALLOWED_RESPONSES_URLS:
+            raise ValueError("responses_url must be a trusted provider endpoint")
         if not isinstance(max_response_bytes, int) or isinstance(max_response_bytes, bool):
             raise ValueError("max_response_bytes must be a positive integer")
         if max_response_bytes <= 0:
@@ -72,6 +81,7 @@ class ResponsesTransport:
         self._timeout_seconds = float(timeout_seconds)
         self._opener = opener or urlopen
         self._max_response_bytes = max_response_bytes
+        self._responses_url = responses_url
 
     def post_json(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
@@ -79,7 +89,7 @@ class ResponsesTransport:
 
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         request = Request(
-            OPENAI_RESPONSES_URL,
+            self._responses_url,
             data=body,
             headers={
                 "Authorization": f"Bearer {self._api_key}",
@@ -92,8 +102,10 @@ class ResponsesTransport:
             with self._opener(request, timeout=self._timeout_seconds) as response:
                 raw = response.read(self._max_response_bytes + 1)
         except HTTPError as exc:
-            if exc.code in {401, 403}:
+            if exc.code == 401:
                 raise ProviderAuthFailed("provider authentication failed") from None
+            if exc.code == 403:
+                raise ProviderPermissionDenied("provider permission denied") from None
             if exc.code == 429:
                 raise ProviderRateLimited("provider rate limit exceeded") from None
             raise ProviderHTTPError(exc.code) from None

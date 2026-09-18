@@ -16,20 +16,48 @@ from src.idea_vending.assessment_store import AssessmentStore
 from src.idea_vending.automation_summary import derive_automation_summary
 from src.idea_vending.bridge_store import BridgeStore
 from src.idea_vending.evolution_runtime import run_evolution
+from src.idea_vending.groq_provider import GroqProviderConfig, GroqResponsesProvider
 from src.idea_vending.openai_provider import OpenAIProviderConfig, OpenAIResponsesProvider
-from src.idea_vending.provider_transport import ResponsesTransport
+from src.idea_vending.provider_transport import GROQ_RESPONSES_URL, ResponsesTransport
 
 AUTONOMOUS_UI_SCRIPT = legacy_app.ROOT / "web/v04.js"
 _AUTONOMOUS_SCRIPT_TAG = '  <script src="/v04.js" defer></script>\n'
 
 
-def _build_autonomous_runner(environ: Mapping[str, str]) -> Callable[[str], dict[str, Any]]:
-    """Build three isolated server-owned provider roles from trusted config."""
-    config = OpenAIProviderConfig.from_environ(environ)
+def _configured_provider_name(environ: Mapping[str, str]) -> str | None:
+    if str(environ.get("GROQ_API_KEY", "")).strip():
+        return "groq"
+    if str(environ.get("OPENAI_API_KEY", "")).strip():
+        return "openai"
+    return None
 
-    def provider() -> OpenAIResponsesProvider:
-        transport = ResponsesTransport(config.api_key, config.timeout_seconds)
-        return OpenAIResponsesProvider(transport, config)
+
+def _build_autonomous_runner(environ: Mapping[str, str]) -> Callable[[str], dict[str, Any]]:
+    """Build three isolated server-owned provider roles from trusted config.
+
+    Groq GPT-OSS 120B is the primary autonomous provider. OpenAI remains an
+    optional compatibility fallback. The ChatGPT Plus Bridge remains available
+    when neither API key is configured.
+    """
+    provider_name = _configured_provider_name(environ)
+    if provider_name == "groq":
+        config = GroqProviderConfig.from_environ(environ)
+
+        def provider() -> GroqResponsesProvider:
+            transport = ResponsesTransport(
+                config.api_key,
+                config.timeout_seconds,
+                responses_url=GROQ_RESPONSES_URL,
+            )
+            return GroqResponsesProvider(transport, config)
+    elif provider_name == "openai":
+        config = OpenAIProviderConfig.from_environ(environ)
+
+        def provider() -> OpenAIResponsesProvider:
+            transport = ResponsesTransport(config.api_key, config.timeout_seconds)
+            return OpenAIResponsesProvider(transport, config)
+    else:
+        raise ValueError("no autonomous provider API key is configured")
 
     research_provider = provider()
     ideation_provider = provider()
@@ -71,7 +99,8 @@ class AutonomousIdeaVendingHandler(legacy_app.IdeaVendingHandler):
 
         environ = getattr(self.server, "evolve_environ", {})
         injected_runner = getattr(self.server, "evolve_runner", None)
-        configured = callable(injected_runner) or legacy_app._provider_is_configured(environ)
+        provider_name = _configured_provider_name(environ)
+        configured = callable(injected_runner) or provider_name is not None
         self._send_json(
             200,
             {
@@ -82,8 +111,12 @@ class AutonomousIdeaVendingHandler(legacy_app.IdeaVendingHandler):
                 "modes": {
                     "autonomous_due_diligence": "ready" if configured else "not_configured",
                     "chatgpt_plus_bridge": "ready",
-                    "openai_api": "configured" if configured else "not_configured",
+                    "groq_api": "configured" if provider_name == "groq" else "not_configured",
+                    "openai_api": "configured" if provider_name == "openai" else "not_configured",
                 },
+                "autonomous_provider": (
+                    "injected" if callable(injected_runner) else provider_name
+                ),
             },
         )
 

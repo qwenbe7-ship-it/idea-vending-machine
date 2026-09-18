@@ -12,11 +12,13 @@ from src.idea_vending.bridge_replay import (
     BridgeIdeationReplay,
     BridgeResearchReplay,
 )
+from src.idea_vending.bridge_schema import validate_forge_bridge_result
 from src.idea_vending.evolution_runtime import (
     ForgeArtifact,
     finalize_evolution_from_forge,
     run_forge_phase,
 )
+from src.idea_vending.intent_planner import build_conservative_intent_context
 
 _FORGE_RESULT_KEYS = {
     "landscape_research",
@@ -30,7 +32,23 @@ _FORGE_RESULT_KEYS = {
 _JUDGE_RESULT_KEYS = {"critiques", "additional_evidence"}
 
 
+def _execution_package_error(value: Any) -> str | None:
+    """Recognize a Bridge execution package accidentally pasted into a result slot."""
+    if not isinstance(value, dict):
+        return None
+    request_type = value.get("request_type")
+    if request_type == "forge" and "result_contract" in value and "chatgpt_instruction" in value:
+        return "bridge_forge_package_pasted_as_result"
+    if request_type == "judge" and "result_contract" in value and "chatgpt_instruction" in value:
+        return "bridge_judge_package_pasted_as_result"
+    return None
+
+
 def bridge_payload_digest(envelope: dict[str, Any]) -> str:
+    if isinstance(envelope, dict):
+        package_error = _execution_package_error(envelope.get("result"))
+        if package_error is not None:
+            raise ValueError(package_error)
     validate_bridge_json(envelope)
     encoded = json.dumps(envelope, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -50,6 +68,10 @@ def validate_and_run_forge_import(
     now_provider: Callable[[], str],
 ) -> ForgeArtifact:
     """Treat Forge output as untrusted provider material and replay it through all existing gates."""
+    if isinstance(envelope, dict):
+        package_error = _execution_package_error(envelope.get("result"))
+        if package_error is not None:
+            raise ValueError(package_error)
     validate_bridge_envelope(envelope)
     if not isinstance(session_record, dict):
         raise ValueError("bridge_session_invalid")
@@ -69,14 +91,20 @@ def validate_and_run_forge_import(
     if not isinstance(result, dict) or set(result) != _FORGE_RESULT_KEYS:
         raise ValueError("bridge_forge_result_invalid")
     validate_bridge_json(result)
+    validate_forge_bridge_result(result)
 
     retrieved_date = _retrieved_date_from_now(now_provider)
+    intent_context = build_conservative_intent_context(raw_idea)
     research = BridgeResearchReplay(
         result,
         session_id=session_id,
         retrieved_date_provider=lambda: retrieved_date,
     )
-    ideation = BridgeIdeationReplay(result, research)
+    ideation = BridgeIdeationReplay(
+        result,
+        research,
+        intent_context=intent_context,
+    )
     forge = run_forge_phase(
         raw_idea,
         research_provider=research,
@@ -87,6 +115,10 @@ def validate_and_run_forge_import(
         raise ValueError("bridge_forge_cannot_set_decision")
     if len(forge.get("candidates", [])) != 10:
         raise ValueError("bridge_forge_candidate_coverage_invalid")
+    if forge.get("intent_model") != intent_context["intent_model"]:
+        raise ValueError("bridge_intent_replay_mismatch")
+    if forge.get("research_plan") != intent_context["research_plan"]:
+        raise ValueError("bridge_research_plan_replay_mismatch")
     return forge
 
 
