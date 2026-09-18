@@ -30,6 +30,7 @@ SCENARIOS = (
     "BRIDGE_FORGE_IMPORT",
     "BRIDGE_LOCAL_VALIDATION_SUCCESS",
     "BRIDGE_LOCAL_VALIDATION_ERROR",
+    "BRIDGE_PACKAGE_PASTE_REJECTED",
     "BRIDGE_JUDGE_EXPORT",
     "BRIDGE_JUDGE_IMPORT",
     "BRIDGE_GO_APPROVAL",
@@ -46,6 +47,7 @@ SCENARIOS = (
     "AUTO_GO_APPROVAL",
     "AUTO_HOLD_BLOCKED",
     "AUTO_PROVIDER_NOT_CONFIGURED_FALLBACK",
+    "AUTO_STALE_BRIDGE_INVALIDATED",
 )
 
 IDEA_BASE = "고객 문의 반복업무를 예방 자동화하고 증거로 검증하는 운영 시스템"
@@ -288,6 +290,19 @@ def scenario_local_validation_error(page: Page, base_url: str) -> None:
     print("PASS: BRIDGE_LOCAL_VALIDATION_ERROR")
 
 
+def scenario_package_paste_rejected(page: Page, base_url: str) -> None:
+    forge_package = start_bridge(page, base_url, f"PACKAGE PASTE {IDEA_BASE}")
+    page.locator("#forge-result-input").fill(json.dumps(forge_package, ensure_ascii=False))
+    page.locator("#import-forge-result").click()
+    local = page.locator("#forge-validation-status")
+    expect(local).to_be_visible(timeout=20000)
+    expect(local).to_have_attribute("data-state", "error")
+    expect(local).to_contain_text("실행용 Forge 패키지")
+    expect(local).to_contain_text("최종")
+    expect(page.locator("#judge-step")).to_be_hidden()
+    print("PASS: BRIDGE_PACKAGE_PASTE_REJECTED")
+
+
 def scenario_malformed_import(page: Page, base_url: str) -> None:
     start_bridge(page, base_url, f"MALFORMED {IDEA_BASE}")
     page.locator("#forge-result-input").fill("{}")
@@ -416,6 +431,38 @@ def scenario_auto_unconfigured_fallback(page: Page, base_url: str) -> None:
     print("PASS: AUTO_PROVIDER_NOT_CONFIGURED_FALLBACK")
 
 
+def scenario_auto_stale_bridge_invalidated(page: Page, base_url: str) -> None:
+    page.goto(base_url, wait_until="domcontentloaded")
+    old_idea = f"OLD {IDEA_BASE}"
+    new_idea = f"NEW {IDEA_BASE}"
+
+    page.locator("#idea").fill(old_idea)
+    page.get_by_role("button", name="자동 분석 시작").click()
+    expect(page.locator("#status")).to_contain_text(
+        "자동 분석 엔진이 아직 설정되지 않았습니다.", timeout=20000
+    )
+    page.locator("#enable-bridge-fallback").click()
+    expect(page.locator("#bridge-workflow")).to_be_hidden()
+    expect(page.locator("#evolve-submit")).to_have_text("Bridge로 분석 시작")
+    page.locator("#evolve-submit").click()
+    expect(page.locator("#bridge-workflow")).to_be_visible(timeout=20000)
+    old_package = hidden_json(page, "#forge-package")
+    if old_package.get("raw_idea") != old_idea:
+        fail("initial fallback Forge package did not match the submitted idea")
+
+    page.locator("#idea").fill(new_idea)
+    expect(page.locator("#bridge-workflow")).to_be_hidden()
+    expect(page.locator("#status")).to_contain_text("아이디어가 변경되었습니다")
+    page.locator("#evolve-submit").click()
+    expect(page.locator("#bridge-workflow")).to_be_visible(timeout=20000)
+    new_package = hidden_json(page, "#forge-package")
+    if new_package.get("raw_idea") != new_idea:
+        fail("new fallback Forge package reused a stale raw_idea")
+    if new_package.get("bridge_session_id") == old_package.get("bridge_session_id"):
+        fail("new fallback Forge package reused a stale bridge session")
+    print("PASS: AUTO_STALE_BRIDGE_INVALIDATED")
+
+
 def run_bridge_suite(browser) -> None:
     server = thread = None
     try:
@@ -428,6 +475,7 @@ def run_bridge_suite(browser) -> None:
         scenario_hold(page, base_url)
         scenario_kill(page, base_url)
         scenario_local_validation_error(page, base_url)
+        scenario_package_paste_rejected(page, base_url)
         scenario_malformed_import(page, base_url)
         scenario_wrong_session(page, base_url)
         scenario_xss(page, base_url)
@@ -443,6 +491,7 @@ def run_autonomous_suite(browser) -> None:
         ("go", scenario_auto_go, True),
         ("hold", scenario_auto_hold, False),
         (None, scenario_auto_unconfigured_fallback, False),
+        (None, scenario_auto_stale_bridge_invalidated, False),
     ):
         server = thread = None
         try:
