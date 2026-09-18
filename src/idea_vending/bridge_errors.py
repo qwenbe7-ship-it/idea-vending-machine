@@ -131,15 +131,129 @@ _VALIDATION_ERRORS: dict[str, dict[str, Any]] = {
         "actual_summary": None,
         "repair_instruction": "빠진 필드를 추가하고 허용되지 않은 추가 필드를 제거하세요.",
     },
+    "bridge_forge_result_invalid": {
+        "code": "bridge_forge_result_invalid",
+        "path": None,
+        "message": "Forge 최종 JSON의 최상위 구조가 계약과 일치하지 않습니다.",
+        "expected_rule": (
+            "최상위에는 landscape_research, extract_assumptions, challenge_assumptions, "
+            "propose_reframes, discover_mechanisms, forge_candidates, collision_research의 7개 key만 있어야 합니다."
+        ),
+        "actual_summary": None,
+        "repair_instruction": "설명·summary·metadata 같은 추가 최상위 key를 제거하고 요구된 7개 section만 남기세요.",
+    },
+    "bridge_candidate_family_order_invalid": {
+        "code": "bridge_candidate_family_order_invalid",
+        "path": "forge_candidates.candidates",
+        "message": "10개 candidate family의 순서가 서버의 canonical order와 다릅니다.",
+        "expected_rule": "candidate_family_contract에 제공된 canonical order를 그대로 사용해야 합니다.",
+        "actual_summary": None,
+        "repair_instruction": "후보 내용을 바꾸지 말고 candidates 배열만 candidate_family_contract 순서로 다시 정렬하세요.",
+    },
+    "bridge_landscape_research_invalid": {
+        "code": "bridge_landscape_research_invalid",
+        "path": "landscape_research",
+        "message": "landscape_research가 비어 있거나 배열 형식이 아닙니다.",
+        "expected_rule": "landscape_research must be a non-empty array of evidence drafts",
+        "actual_summary": None,
+        "repair_instruction": "현재 시장/문제 근거와 counter-evidence를 포함한 evidence draft 배열을 반환하세요.",
+    },
+    "bridge_collision_research_invalid": {
+        "code": "bridge_collision_research_invalid",
+        "path": "collision_research",
+        "message": "collision_research가 비어 있거나 배열 형식이 아닙니다.",
+        "expected_rule": "collision_research must be a non-empty array",
+        "actual_summary": None,
+        "repair_instruction": "prior_art, competitors, failure_or_blockers를 포함한 collision evidence 배열을 반환하세요.",
+    },
+    "bridge_ideation_result_missing": {
+        "code": "bridge_ideation_result_missing",
+        "path": None,
+        "message": "필수 Forge ideation section이 없거나 object 형식이 아닙니다.",
+        "expected_rule": "Every required Forge ideation section must be present as an object",
+        "actual_summary": None,
+        "repair_instruction": "result_contract.required_top_level_keys와 section_schemas를 다시 따라 누락된 section을 복구하세요.",
+    },
+    "bridge_evidence_direction_invalid": {
+        "code": "bridge_evidence_direction_invalid",
+        "path": None,
+        "message": "supports_or_contradicts 값이 허용된 enum이 아닙니다.",
+        "expected_rule": "Use only the supports_or_contradicts values allowed by result_contract",
+        "actual_summary": None,
+        "repair_instruction": "result_contract의 enum 값 중 하나로 수정하세요.",
+    },
+    "bridge_confidence_tier_invalid": {
+        "code": "bridge_confidence_tier_invalid",
+        "path": None,
+        "message": "confidence_tier 값이 허용된 enum이 아닙니다.",
+        "expected_rule": "Use only confidence_tier values allowed by result_contract",
+        "actual_summary": None,
+        "repair_instruction": "result_contract의 confidence_tier enum 중 하나로 수정하세요.",
+    },
+    "bridge_freshness_status_invalid": {
+        "code": "bridge_freshness_status_invalid",
+        "path": None,
+        "message": "freshness_status 값이 허용된 enum이 아닙니다.",
+        "expected_rule": "Use only freshness_status values allowed by result_contract",
+        "actual_summary": None,
+        "repair_instruction": "result_contract의 freshness_status enum 중 하나로 수정하세요.",
+    },
+    "bridge_candidate_families_invalid": {
+        "code": "bridge_candidate_families_invalid",
+        "path": None,
+        "message": "candidate_families가 문자열 배열 형식이 아닙니다.",
+        "expected_rule": "candidate_families must be an array of canonical family names",
+        "actual_summary": None,
+        "repair_instruction": "candidate_families를 result_contract가 허용한 family 문자열 배열로 수정하세요.",
+    },
+    "bridge_candidate_families_duplicate": {
+        "code": "bridge_candidate_families_duplicate",
+        "path": None,
+        "message": "candidate_families에 중복 값이 있습니다.",
+        "expected_rule": "candidate_families entries must be unique",
+        "actual_summary": None,
+        "repair_instruction": "중복된 family를 제거하세요.",
+    },
+    "bridge_evidence_text_invalid": {
+        "code": "bridge_evidence_text_invalid",
+        "path": None,
+        "message": "evidence의 notes 또는 raw_excerpt가 문자열 형식이 아닙니다.",
+        "expected_rule": "notes and raw_excerpt must be strings",
+        "actual_summary": None,
+        "repair_instruction": "notes와 raw_excerpt를 문자열로 작성하세요. 내용이 없으면 빈 문자열을 사용하세요.",
+    },
 }
 
 
 def safe_bridge_validation_error(code: str) -> dict[str, Any] | None:
-    """Return a defensive copy for a known safe validation code, else None."""
+    """Return closed, non-reflective validation metadata for Bridge contract failures."""
     if not isinstance(code, str):
         return None
     payload = _VALIDATION_ERRORS.get(code)
-    return deepcopy(payload) if payload is not None else None
+    if payload is not None:
+        return deepcopy(payload)
+    if code.startswith("bridge_"):
+        return {
+            "code": code,
+            "path": None,
+            "message": f"Bridge 결과가 서버 검증 계약을 통과하지 못했습니다. 오류 코드: {code}",
+            "expected_rule": "Follow the exported result_contract exactly",
+            "actual_summary": None,
+            "repair_instruction": (
+                "현재 ChatGPT 결과의 내용은 유지하되 result_contract의 exact keys, types, enums, "
+                "reference rules, candidate count/order를 다시 맞춘 뒤 재검증하세요."
+            ),
+        }
+    return {
+        "code": "bridge_result_replay_contract_invalid",
+        "path": None,
+        "message": "Bridge 결과가 deterministic replay 단계의 내부 계약을 통과하지 못했습니다.",
+        "expected_rule": "The imported result must satisfy every exported contract and trusted replay invariant",
+        "actual_summary": None,
+        "repair_instruction": (
+            "같은 아이디어를 다시 조사할 필요는 없습니다. 현재 결과를 result_contract에 맞춰 구조만 교정한 뒤 재검증하세요."
+        ),
+    }
 
 
 def bridge_import_error_payload(code: str) -> dict[str, Any]:
