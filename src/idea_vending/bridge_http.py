@@ -53,7 +53,10 @@ class BridgeValidationHTTPMixin:
         try:
             digest = bridge_payload_digest(envelope)
             session_id = envelope["bridge_session_id"]
-        except (KeyError, TypeError, ValueError):
+        except ValueError as exc:
+            self._send_json(400, bridge_import_error_payload(str(exc)))
+            return
+        except (KeyError, TypeError):
             self._send_json(400, {"error": "bridge_import_invalid"})
             return
 
@@ -102,7 +105,10 @@ class BridgeValidationHTTPMixin:
         try:
             digest = bridge_payload_digest(envelope)
             session_id = envelope["bridge_session_id"]
-        except (KeyError, TypeError, ValueError):
+        except ValueError as exc:
+            self._send_json(400, bridge_import_error_payload(str(exc)))
+            return
+        except (KeyError, TypeError):
             self._send_json(400, {"error": "bridge_import_invalid"})
             return
 
